@@ -1,5 +1,6 @@
 import sys
 import os
+import tempfile
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
@@ -9,9 +10,8 @@ from webdriver_manager.chrome import ChromeDriverManager
 
 # Test Case ID
 TEST_CASE_ID = "TC-010"
-
-# HTML content for the local file
-html_content = """
+# Temporary HTML file content
+HTML_CONTENT = """
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -197,95 +197,74 @@ html_content = """
 </html>
 """
 
-# Create a temporary HTML file
-html_file_name = "checkout.html"
-with open(html_file_name, "w") as f:
-    f.write(html_content)
-
-# Get the absolute path to the HTML file
-html_file_path = os.path.abspath(html_file_name)
-
+# Setup for temporary HTML file
+temp_html_file = None
+temp_html_file_path = None
 driver = None
+
 try:
-    # Initialize Chrome WebDriver using ChromeDriverManager
+    # Create a temporary HTML file
+    temp_html_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8')
+    temp_html_file.write(HTML_CONTENT)
+    temp_html_file.close()
+    temp_html_file_path = temp_html_file.name
+
+    # Initialize Chrome WebDriver
+    # Use ChromeDriverManager to automatically download and manage the ChromeDriver executable
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service)
-    driver.maximize_window() # Maximize window for better visibility
+    driver.maximize_window() # Maximize the browser window for better visibility
     
-    # Navigate to the local HTML file
-    driver.get(f"file:///{html_file_path}")
-
-    # Initialize WebDriverWait
+    # Initialize WebDriverWait for explicit waits
     wait = WebDriverWait(driver, 10)
 
-    print(f"Starting Test Case {TEST_CASE_ID}: Cart Summary Updates Instantly on Item Addition")
+    # Open the local HTML file
+    driver.get(f"file:///{temp_html_file_path}")
 
-    # 1. Verify initial cart state
-    # Wait for the total element to be visible and get its text
-    initial_total_element = wait.until(EC.visibility_of_element_located((By.ID, "total")))
-    assert initial_total_element.text == "0", f"Initial total expected '0', but found '{initial_total_element.text}'"
-    print("Initial total is $0.00 as expected.")
+    # --- Test Scenario: Payment processing with missing user details ---
 
-    # Wait for the cart element to be visible and get its innerHTML
-    initial_cart_element = wait.until(EC.visibility_of_element_located((By.ID, "cart")))
-    assert initial_cart_element.get_attribute('innerHTML').strip() == "", "Initial cart should be empty"
-    print("Initial cart is empty as expected.")
+    # 1. Add a product to the cart to ensure a total exists and the pay button is relevant
+    print("Adding 'Product A' to cart...")
+    add_to_cart_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='item'][1]/button")))
+    add_to_cart_btn.click()
+    print("Product added to cart.")
 
-    # 2. Add Product A to cart
-    # Find and click the "Add to Cart" button for Product A
-    product_a_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='item']/span[contains(text(), 'Product A')]/following-sibling::button")))
-    product_a_button.click()
-    print("Clicked 'Add to Cart' for Product A.")
+    # 2. Do NOT fill in required user details (name, email, address)
+    # The fields are left empty by default, which is the core of this test case.
+    print("Leaving user details (Name, Email, Address) empty as per test case.")
 
-    # Verify cart summary updates instantly for Product A
-    # Wait for the total to update to "50.00"
-    wait.until(EC.text_to_be_present_in_element((By.ID, "total"), "50.00"))
-    current_total = driver.find_element(By.ID, "total").text
-    assert current_total == "50.00", f"Total expected '50.00' after adding Product A, but found '{current_total}'"
-    print(f"Total updated to ${current_total} for Product A.")
+    # 3. Click the "Pay Now" button
+    print("Clicking 'Pay Now' button...")
+    pay_button = wait.until(EC.element_to_be_clickable((By.ID, "payBtn")))
+    pay_button.click()
+    print("'Pay Now' button clicked.")
 
-    # Verify Product A is in the cart summary
-    cart_content = driver.find_element(By.ID, "cart").get_attribute('innerHTML')
-    assert "Product A - $50" in cart_content, f"Cart content does not contain 'Product A - $50'. Content: {cart_content}"
-    print("Cart summary contains 'Product A - $50'.")
+    # --- Verification ---
 
-    # 3. Add Product B to cart
-    # Find and click the "Add to Cart" button for Product B
-    product_b_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='item']/span[contains(text(), 'Product B')]/following-sibling::button")))
-    product_b_button.click()
-    print("Clicked 'Add to Cart' for Product B.")
+    # 4. Verify that the "Payment Successful!" message is NOT displayed
+    success_message = wait.until(EC.presence_of_element_located((By.ID, "success")))
+    assert not success_message.is_displayed(), "Assertion Failed: Payment success message should NOT be displayed when user details are missing."
+    print("Verification: Payment success message is NOT displayed (Expected).")
 
-    # Verify cart summary updates instantly for Product B
-    # Wait for the total to update to "80.00" (50 + 30)
-    wait.until(EC.text_to_be_present_in_element((By.ID, "total"), "80.00"))
-    current_total = driver.find_element(By.ID, "total").text
-    assert current_total == "80.00", f"Total expected '80.00' after adding Product B, but found '{current_total}'"
-    print(f"Total updated to ${current_total} for Product B.")
+    # 5. Verify that error messages for missing required user details are displayed and correct
+    
+    # Verify Name error message
+    name_error = wait.until(EC.visibility_of_element_located((By.ID, "nameError")))
+    assert name_error.text == "Name is required", \
+        f"Assertion Failed: Expected name error 'Name is required', but got '{name_error.text}'"
+    print(f"Verification: Name error message '{name_error.text}' is displayed (Expected).")
 
-    # Verify Product B is also in the cart summary
-    cart_content = driver.find_element(By.ID, "cart").get_attribute('innerHTML')
-    assert "Product A - $50" in cart_content and "Product B - $30" in cart_content, \
-        f"Cart content does not contain both 'Product A - $50' and 'Product B - $30'. Content: {cart_content}"
-    print("Cart summary contains 'Product A - $50' and 'Product B - $30'.")
+    # Verify Email error message
+    email_error = wait.until(EC.visibility_of_element_located((By.ID, "emailError")))
+    assert email_error.text == "Email is required", \
+        f"Assertion Failed: Expected email error 'Email is required', but got '{email_error.text}'"
+    print(f"Verification: Email error message '{email_error.text}' is displayed (Expected).")
 
-    # 4. Add Product C to cart
-    # Find and click the "Add to Cart" button for Product C
-    product_c_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='item']/span[contains(text(), 'Product C')]/following-sibling::button")))
-    product_c_button.click()
-    print("Clicked 'Add to Cart' for Product C.")
-
-    # Verify cart summary updates instantly for Product C
-    # Wait for the total to update to "100.00" (50 + 30 + 20)
-    wait.until(EC.text_to_be_present_in_element((By.ID, "total"), "100.00"))
-    current_total = driver.find_element(By.ID, "total").text
-    assert current_total == "100.00", f"Total expected '100.00' after adding Product C, but found '{current_total}'"
-    print(f"Total updated to ${current_total} for Product C.")
-
-    # Verify Product C is also in the cart summary
-    cart_content = driver.find_element(By.ID, "cart").get_attribute('innerHTML')
-    assert "Product A - $50" in cart_content and "Product B - $30" in cart_content and "Product C - $20" in cart_content, \
-        f"Cart content does not contain all products. Content: {cart_content}"
-    print("Cart summary contains 'Product A - $50', 'Product B - $30', and 'Product C - $20'.")
+    # Verify Address error message
+    address_error = wait.until(EC.visibility_of_element_located((By.ID, "addressError")))
+    assert address_error.text == "Address is required", \
+        f"Assertion Failed: Expected address error 'Address is required', but got '{address_error.text}'"
+    print(f"Verification: Address error message '{address_error.text}' is displayed (Expected).")
 
     print(f"Test Case {TEST_CASE_ID} PASSED")
     sys.exit(0)
@@ -295,15 +274,15 @@ except Exception as e:
     print(f"An error occurred: {e}")
     if driver:
         # Take a screenshot on failure
-        screenshot_path = f"{TEST_CASE_ID}_FAILED.png"
-        driver.save_screenshot(screenshot_path)
-        print(f"Screenshot saved to {screenshot_path}")
+        screenshot_name = f"{TEST_CASE_ID}_FAILED_screenshot.png"
+        driver.save_screenshot(screenshot_name)
+        print(f"Screenshot saved as {screenshot_name}")
     sys.exit(1)
 
 finally:
-    # Close the browser
+    # Clean up: Close the browser and remove the temporary HTML file
     if driver:
         driver.quit()
-    # Clean up the temporary HTML file
-    if os.path.exists(html_file_name):
-        os.remove(html_file_name)
+    if temp_html_file_path and os.path.exists(temp_html_file_path):
+        os.remove(temp_html_file_path)
+        print(f"Cleaned up temporary HTML file: {temp_html_file_path}")

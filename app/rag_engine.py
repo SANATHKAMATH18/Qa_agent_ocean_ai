@@ -403,6 +403,7 @@ REQUIREMENTS:
 11. IMPORTANT: On success, print a message like "Test Case {{ID}} PASSED" and exit with sys.exit(0).
 12. IMPORTANT: On failure, print a message like "Test Case {{ID}} FAILED" and exit with sys.exit(1).
 13. Wrap the entire test in a try-except block. In the except block, print the error, take a screenshot if possible, and sys.exit(1).
+14. CRITICAL: If you need to embed HTML content in the script, use a raw string with triple quotes to avoid escape sequence warnings. For example: HTML_CONTENT = r'''<html>...</html>'''
 
 OUTPUT ONLY the Python code, no markdown, no explanations, just the code:
 """

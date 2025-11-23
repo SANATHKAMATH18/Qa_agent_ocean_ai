@@ -29,6 +29,7 @@ def clean_llm_json(response_text: str):
 def clean_python_code(response_text: str):
     """
     Extracts pure Python code from LLM response, removing markdown formatting.
+    Also fixes invalid escape sequences in HTML content strings.
     """
     text = response_text.strip()
     
@@ -37,7 +38,28 @@ def clean_python_code(response_text: str):
     match = re.search(pattern, text, re.DOTALL)
     if match:
         text = match.group(1)
-        
+    
+    # Fix invalid escape sequences in HTML content strings
+    # Look for patterns like: HTML_CONTENT = """...""" or html_content = """..."""
+    # and convert them to raw strings: HTML_CONTENT = r"""..."""
+    # Match variable assignments with triple-quoted strings that likely contain HTML
+    html_pattern = r'(\b\w+\s*=\s*)("""[\s\S]*?""")'
+    
+    def fix_html_string(match):
+        var_assignment = match.group(1)
+        html_string = match.group(2)
+        # Check if it's already a raw string
+        if not html_string.startswith('r"""') and not html_string.startswith("r'''"):
+            # Check if the string contains HTML-like content (tags, attributes, etc.)
+            # This is a heuristic - if it contains < and >, it's likely HTML
+            if '<' in html_string and '>' in html_string:
+                # Convert to raw string
+                return f'{var_assignment}r{html_string}'
+        return match.group(0)
+    
+    # Apply the fix
+    text = re.sub(html_pattern, fix_html_string, text, flags=re.MULTILINE)
+    
     return text
 
 def save_generated_script(filename: str, code: str):

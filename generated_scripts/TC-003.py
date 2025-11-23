@@ -1,20 +1,18 @@
 import sys
 import os
+import tempfile
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
 
-# --- Test Case Details ---
+# Test Case ID
 TEST_CASE_ID = "TC-003"
-TEST_CASE_TITLE = "Verify Form Validation Error Display Color"
-# Expected color for red in RGB format. Selenium often returns rgba(255, 0, 0, 1) for 'red'.
-EXPECTED_COLOR_RGB = "rgb(255, 0, 0)"
-EXPECTED_COLOR_RGBA = "rgba(255, 0, 0, 1)"
 
-# --- Create a temporary HTML file ---
-html_content = """
+# HTML content as a raw string
+HTML_CONTENT = r'''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -198,79 +196,106 @@ html_content = """
     </script>
 </body>
 </html>
-"""
+'''
 
-# Define the path for the temporary HTML file
-HTML_FILE_NAME = "checkout_form_validation.html"
-HTML_FILE_PATH = os.path.abspath(HTML_FILE_NAME)
+# Setup WebDriver
+driver = None
+temp_html_file = None
 
-# Write the HTML content to the file
-with open(HTML_FILE_PATH, "w") as f:
-    f.write(html_content)
-
-driver = None # Initialize driver to None for proper cleanup in finally block
 try:
-    # Initialize Chrome WebDriver using ChromeDriverManager
-    driver = webdriver.Chrome(ChromeDriverManager().install())
-    driver.maximize_window() # Maximize window for better visibility
+    # Create a temporary HTML file to load in the browser
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8') as f:
+        f.write(HTML_CONTENT)
+        temp_html_file = f.name
+    
+    # Initialize Chrome WebDriver using ChromeDriverManager for automatic driver management
+    service = ChromeService(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service)
+    
+    # Navigate to the local HTML file
+    driver.get(f"file:///{temp_html_file}")
+    print(f"Navigated to {driver.current_url}")
 
-    # Open the local HTML file
-    driver.get(f"file://{HTML_FILE_PATH}")
-    print(f"Navigated to: {driver.current_url}")
+    # Add a product to the cart to ensure a non-zero total, which might be a prerequisite for payment
+    # Use explicit wait for the "Add to Cart" button for Product A to be clickable
+    add_to_cart_btn = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.XPATH, "//div[@class='item']/span[contains(text(), 'Product A')]/following-sibling::button"))
+    )
+    add_to_cart_btn.click()
+    print("Action: Added 'Product A' to cart.")
 
-    # --- Test Steps ---
+    # Verify cart total is updated to reflect the added product
+    total_element = WebDriverWait(driver, 10).until(
+        EC.visibility_of_element_located((By.ID, "total"))
+    )
+    assert total_element.text == "50.00", f"Assertion Failed: Expected total to be '50.00', but got '{total_element.text}'"
+    print(f"Verification: Cart total is ${total_element.text}.")
 
-    # 1. Trigger a form validation error by clicking 'Pay Now' without filling required fields.
-    # This will cause validation errors for 'name', 'email', and 'address' fields.
+    # For this test case, we intentionally leave required user details (name, email, address) blank.
+    # No interaction with these input fields is needed as their default state is blank.
+    print("Action: Intentionally leaving 'Full Name', 'Email', and 'Address' fields blank.")
+
+    # Click the "Pay Now" button to attempt payment with missing details
     pay_button = WebDriverWait(driver, 10).until(
         EC.element_to_be_clickable((By.ID, "payBtn"))
     )
     pay_button.click()
-    print("Clicked 'Pay Now' button to trigger form validation.")
+    print("Action: Clicked 'Pay Now' button.")
 
-    # 2. Wait for the email error message element to be visible and contain text.
-    # We choose 'emailError' as a representative validation error to check its color.
-    email_error_element = WebDriverWait(driver, 10).until(
-        EC.visibility_of_element_located((By.ID, "emailError"))
-    )
-    
-    # Assert that the error message is displayed and not empty
-    assert email_error_element.is_displayed(), "Email error message is not displayed."
-    assert email_error_element.text.strip() != "", "Email error message is empty."
-    print(f"Email error message displayed: '{email_error_element.text}'")
+    # --- Assertions for Payment Failure and Error Messages ---
 
-    # 3. Get the computed color style of the error message element.
-    actual_color = email_error_element.value_of_css_property("color")
-    print(f"Actual color of email error message: {actual_color}")
+    # 1. Verify that the "Payment Successful!" message is NOT displayed
+    success_message_element = driver.find_element(By.ID, "success")
+    # Use EC.invisibility_of_element_located to ensure it's not visible
+    WebDriverWait(driver, 10).until(EC.invisibility_of_element_located((By.ID, "success")))
+    assert success_message_element.is_displayed() is False, \
+        "Assertion Failed: Payment success message should NOT be displayed when details are missing."
+    print("Verification: Payment success message is NOT displayed.")
 
-    # 4. Verify that the displayed form validation error message is in red text.
-    # Selenium returns color in rgba() or rgb() format. We compare it to the expected red.
-    if actual_color == EXPECTED_COLOR_RGB or actual_color == EXPECTED_COLOR_RGBA:
-        print(f"Assertion Passed: Error message color is '{actual_color}', which is red.")
-    else:
-        raise AssertionError(
-            f"Assertion Failed: Expected error message color to be red ({EXPECTED_COLOR_RGB} or {EXPECTED_COLOR_RGBA}), "
-            f"but got '{actual_color}'."
+    # 2. Verify specific validation error messages are displayed for each missing field
+    # Expected error messages and their corresponding IDs
+    expected_errors = {
+        "nameError": "Name is required",
+        "emailError": "Email is required",
+        "addressError": "Address is required"
+    }
+
+    for error_id, expected_text in expected_errors.items():
+        # Use explicit wait for the error message element to be visible
+        error_element = WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.ID, error_id))
         )
+        
+        # Verify error message text
+        actual_text = error_element.text
+        assert actual_text == expected_text, \
+            f"Assertion Failed: Expected error for '{error_id}' to be '{expected_text}', but got '{actual_text}'"
+        print(f"Verification: Error message for '{error_id}' is '{actual_text}'.")
+
+        # Verify error message is displayed in red text
+        # Get the computed style property 'color'. 'red' typically translates to 'rgb(255, 0, 0)'.
+        color = error_element.value_of_css_property("color")
+        assert color == "rgb(255, 0, 0)", \
+            f"Assertion Failed: Expected error text color for '{error_id}' to be red (rgb(255, 0, 0)), but got '{color}'"
+        print(f"Verification: Error message color for '{error_id}' is red.")
 
     print(f"Test Case {TEST_CASE_ID} PASSED")
     sys.exit(0)
 
 except Exception as e:
     print(f"Test Case {TEST_CASE_ID} FAILED")
-    print(f"Error: {e}")
+    print(f"An error occurred: {e}")
     if driver:
         # Take a screenshot on failure for debugging
-        screenshot_path = f"{TEST_CASE_ID}_FAILURE.png"
+        screenshot_path = f"{TEST_CASE_ID}_failure_screenshot.png"
         driver.save_screenshot(screenshot_path)
         print(f"Screenshot saved to {screenshot_path}")
     sys.exit(1)
 
 finally:
-    # Close the browser if it was opened
+    # Clean up: close the browser and delete the temporary HTML file
     if driver:
         driver.quit()
-    # Clean up the temporary HTML file
-    if os.path.exists(HTML_FILE_PATH):
-        os.remove(HTML_FILE_PATH)
-        print(f"Cleaned up temporary file: {HTML_FILE_PATH}")
+    if temp_html_file and os.path.exists(temp_html_file):
+        os.remove(temp_html_file)
+        print(f"Cleaned up temporary file: {temp_html_file}")
