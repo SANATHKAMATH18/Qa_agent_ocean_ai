@@ -12,7 +12,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.documents import Document
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
-from dotenv import load_dotenv
+
 
 # Add project root to Python path
 project_root = Path(__file__).parent.parent
@@ -54,8 +54,7 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).parent.parent))
     from app.utils import clean_llm_json
 
-# Load API Keys
-load_dotenv()
+
 
 # Configuration
 VECTOR_DB_PATH = "chroma_db_store"

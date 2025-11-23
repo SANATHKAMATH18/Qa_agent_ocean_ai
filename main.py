@@ -7,9 +7,11 @@ import subprocess
 import sys
 import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 if __name__ == "__main__":
     # Ensure we're in the project root
+    load_dotenv()
     project_root = Path(__file__).parent
     os.chdir(project_root)
     
