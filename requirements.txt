@@ -1,26 +1,39 @@
 # --- Core Web Frameworks ---
-fastapi
-uvicorn
-streamlit
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+streamlit>=1.28.0
 
 # --- AI & Orchestration ---
-langchain
-langchain-community
-langchain-openai
-langgraph
+langchain>=0.1.0
+langchain-community>=0.0.10
+langchain-openai>=0.0.2
+langchain-google-genai>=0.0.6
+langchain-text-splitters>=0.0.1
 
 # --- Vector Database ---
-chromadb
+chromadb>=0.4.0
+
+# --- Embeddings (Local) ---
+sentence-transformers>=2.2.0
+# torch will be installed automatically with sentence-transformers
 
 # --- Data Ingestion & Parsing ---
-beautifulsoup4
-unstructured
-markdown
+beautifulsoup4>=4.12.0
+unstructured>=0.10.0
+unstructured[local-inference]>=0.10.0
+markdown>=3.5.0
+pymupdf>=1.23.0
+lxml>=4.9.0
 
 # --- Automation & Testing ---
-selenium
-webdriver-manager
+selenium>=4.15.0
+webdriver-manager>=4.0.0
 
 # --- Utilities ---
-python-dotenv
-requests
+python-dotenv>=1.0.0
+requests>=2.31.0
+pandas>=2.1.0
+
+# --- Optional: For local LLM support ---
+# Uncomment if using Ollama locally
+# ollama==0.1.4
