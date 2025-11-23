@@ -1,22 +1,15 @@
 import sys
 import os
+import tempfile
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service as ChromeService
 
-# --- Test Case Details ---
-TEST_CASE_ID = "TC-011"
-TEST_CASE_TITLE = "Verify Presence and Basic Interactivity of Input Fields"
-HTML_FILE_NAME = "checkout_page.html"
-SCREENSHOT_DIR = "screenshots"
-
-# --- Target HTML File Content ---
-HTML_CONTENT = """
-<!DOCTYPE html>
+# CRITICAL: HTML content must be a raw string with triple quotes to avoid escape sequence warnings
+HTML_CONTENT = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -198,179 +191,119 @@ HTML_CONTENT = """
         }
     </script>
 </body>
-</html>
-"""
+</html>'''
 
-def create_html_file(filename, content):
-    """Creates a local HTML file for testing."""
-    with open(filename, "w") as f:
-        f.write(content)
-    return os.path.abspath(filename)
-
-def setup_driver():
-    """Initializes and returns a Chrome WebDriver."""
-    # Set up Chrome options (optional, e.g., headless mode)
-    chrome_options = webdriver.ChromeOptions()
-    # chrome_options.add_argument("--headless") # Uncomment to run in headless mode
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    
-    # Use ChromeDriverManager to automatically download and manage the ChromeDriver
-    service = ChromeService(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    driver.maximize_window()
-    return driver
+TEST_CASE_ID = "TC-011"
+SCREENSHOT_DIR = "screenshots"
 
 def take_screenshot(driver, test_id):
-    """Takes a screenshot and saves it to the screenshots directory."""
+    """Takes a screenshot and saves it to the specified directory."""
     if not os.path.exists(SCREENSHOT_DIR):
         os.makedirs(SCREENSHOT_DIR)
     screenshot_path = os.path.join(SCREENSHOT_DIR, f"{test_id}_failure.png")
     try:
         driver.save_screenshot(screenshot_path)
-        print(f"Screenshot saved to: {screenshot_path}")
-    except WebDriverException as e:
+        print(f"Screenshot saved to {screenshot_path}")
+    except Exception as e:
         print(f"Failed to take screenshot: {e}")
 
 def run_test():
     driver = None
-    html_file_path = None
+    temp_html_file = None
     try:
-        # 1. Create the local HTML file
-        html_file_path = create_html_file(HTML_FILE_NAME, HTML_CONTENT)
-        print(f"Local HTML file created at: {html_file_path}")
+        # 1. Setup temporary HTML file
+        # Create a temporary file to host the HTML content for the browser
+        temp_html_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8')
+        temp_html_file.write(HTML_CONTENT)
+        temp_html_file.close()
+        file_path = 'file://' + os.path.abspath(temp_html_file.name)
+        print(f"Temporary HTML file created at: {file_path}")
 
-        # 2. Initialize the WebDriver
-        driver = setup_driver()
-        
+        # 2. Initialize WebDriver
+        # Use ChromeDriverManager to automatically download and manage the ChromeDriver executable
+        driver = webdriver.Chrome(ChromeDriverManager().install())
+        driver.maximize_window()
+        print("WebDriver initialized.")
+
         # 3. Navigate to the local HTML file
-        driver.get(f"file:///{html_file_path}")
-        print(f"Navigated to: file:///{html_file_path}")
+        driver.get(file_path)
+        print(f"Navigated to: {file_path}")
 
-        # Set up WebDriverWait for explicit waits
-        wait = WebDriverWait(driver, 10)
+        # 4. Get initial cart total
+        # Wait for the 'total' element to be visible and retrieve its initial text value
+        total_element = WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.ID, "total"))
+        )
+        initial_total_text = total_element.text
+        initial_total = float(initial_total_text)
+        print(f"Initial cart total: ${initial_total:.2f}")
 
-        print(f"\n--- Running Test Case: {TEST_CASE_ID} - {TEST_CASE_TITLE} ---")
+        # Define the product to add and its expected price
+        product_name_to_add = "Product A"
+        product_price = 50.00
+        expected_new_total = initial_total + product_price
 
-        # --- Verify User Details Input Fields ---
-        print("Verifying 'User Details' input fields:")
-        
-        # Full Name input (ID: name)
-        name_input_locator = (By.ID, "name")
-        name_input = wait.until(EC.visibility_of_element_located(name_input_locator),
-                                f"'{name_input_locator[1]}' input field not visible.")
-        assert name_input.is_enabled(), f"'{name_input_locator[1]}' input field is not enabled."
-        test_name = "John Doe"
-        name_input.send_keys(test_name)
-        assert name_input.get_attribute("value") == test_name, f"Failed to enter text into '{name_input_locator[1]}'."
-        print(f"  - Full Name input (ID: {name_input_locator[1]}) is present, enabled, and accepts input.")
+        # 5. Locate and click the "Add to Cart" button for the specified product
+        # Using XPath to find the button that is a sibling to the span containing the product name
+        add_to_cart_button_xpath = f"//div[@class='item']/span[contains(text(), '{product_name_to_add}')]/following-sibling::button[contains(text(), 'Add to Cart')]"
+        add_to_cart_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, add_to_cart_button_xpath))
+        )
+        print(f"Clicking 'Add to Cart' for {product_name_to_add}...")
+        add_to_cart_button.click()
 
-        # Email input (ID: email)
-        email_input_locator = (By.ID, "email")
-        email_input = wait.until(EC.visibility_of_element_located(email_input_locator),
-                                 f"'{email_input_locator[1]}' input field not visible.")
-        assert email_input.is_enabled(), f"'{email_input_locator[1]}' input field is not enabled."
-        test_email = "john.doe@example.com"
-        email_input.send_keys(test_email)
-        assert email_input.get_attribute("value") == test_email, f"Failed to enter text into '{email_input_locator[1]}'."
-        print(f"  - Email input (ID: {email_input_locator[1]}) is present, enabled, and accepts input.")
+        # 6. Verify the cart summary updates instantly without a full page refresh
+        # The JavaScript updates the total with toFixed(2), so we expect a string like "50.00"
+        expected_total_string = f"{expected_new_total:.2f}"
+        print(f"Waiting for cart total to update to: ${expected_total_string}")
 
-        # Address textarea (ID: address)
-        address_textarea_locator = (By.ID, "address")
-        address_textarea = wait.until(EC.visibility_of_element_located(address_textarea_locator),
-                                      f"'{address_textarea_locator[1]}' textarea not visible.")
-        assert address_textarea.is_enabled(), f"'{address_textarea_locator[1]}' textarea is not enabled."
-        test_address = "123 Main St, Anytown, USA"
-        address_textarea.send_keys(test_address)
-        assert address_textarea.get_attribute("value") == test_address, f"Failed to enter text into '{address_textarea_locator[1]}'."
-        print(f"  - Address textarea (ID: {address_textarea_locator[1]}) is present, enabled, and accepts input.")
+        # Use explicit wait to ensure the text of the 'total' element changes to the expected value
+        WebDriverWait(driver, 10).until(
+            EC.text_to_be_present_in_element((By.ID, "total"), expected_total_string)
+        )
 
-        # --- Verify Shipping Method Radio Buttons ---
-        print("\nVerifying 'Shipping Method' radio buttons:")
+        # Retrieve the updated total text and convert to float for assertion
+        updated_total_text = total_element.text
+        updated_total = float(updated_total_text)
+        print(f"Updated cart total: ${updated_total:.2f}")
 
-        # Standard Shipping radio button (ID: shipping-standard)
-        shipping_standard_locator = (By.ID, "shipping-standard")
-        shipping_standard = wait.until(EC.visibility_of_element_located(shipping_standard_locator),
-                                        f"'{shipping_standard_locator[1]}' radio button not visible.")
-        assert shipping_standard.is_enabled(), f"'{shipping_standard_locator[1]}' radio button is not enabled."
-        assert shipping_standard.is_selected(), f"'{shipping_standard_locator[1]}' radio button is not selected by default."
-        print(f"  - Standard Shipping radio (ID: {shipping_standard_locator[1]}) is present, enabled, and selected by default.")
+        # Assert that the updated total matches the expected value
+        assert updated_total == expected_new_total, \
+            f"Cart total did not update correctly. Expected ${expected_new_total:.2f}, but got ${updated_total:.2f}"
 
-        # Express Shipping radio button (ID: shipping-express)
-        shipping_express_locator = (By.ID, "shipping-express")
-        shipping_express = wait.until(EC.visibility_of_element_located(shipping_express_locator),
-                                      f"'{shipping_express_locator[1]}' radio button not visible.")
-        assert shipping_express.is_enabled(), f"'{shipping_express_locator[1]}' radio button is not enabled."
-        assert not shipping_express.is_selected(), f"'{shipping_express_locator[1]}' radio button is selected unexpectedly."
-        
-        # Click Express Shipping and verify selection change
-        shipping_express.click()
-        assert shipping_express.is_selected(), f"Failed to select '{shipping_express_locator[1]}' radio button."
-        assert not shipping_standard.is_selected(), f"'{shipping_standard_locator[1]}' radio button is still selected after selecting Express."
-        print(f"  - Express Shipping radio (ID: {shipping_express_locator[1]}) is present, enabled, and can be selected.")
-
-        # --- Verify Payment Method Radio Buttons ---
-        print("\nVerifying 'Payment Method' radio buttons:")
-
-        # Credit Card radio button (ID: payment-card)
-        payment_card_locator = (By.ID, "payment-card")
-        payment_card = wait.until(EC.visibility_of_element_located(payment_card_locator),
-                                  f"'{payment_card_locator[1]}' radio button not visible.")
-        assert payment_card.is_enabled(), f"'{payment_card_locator[1]}' radio button is not enabled."
-        assert payment_card.is_selected(), f"'{payment_card_locator[1]}' radio button is not selected by default."
-        print(f"  - Credit Card radio (ID: {payment_card_locator[1]}) is present, enabled, and selected by default.")
-
-        # PayPal radio button (ID: payment-paypal)
-        payment_paypal_locator = (By.ID, "payment-paypal")
-        payment_paypal = wait.until(EC.visibility_of_element_located(payment_paypal_locator),
-                                    f"'{payment_paypal_locator[1]}' radio button not visible.")
-        assert payment_paypal.is_enabled(), f"'{payment_paypal_locator[1]}' radio button is not enabled."
-        assert not payment_paypal.is_selected(), f"'{payment_paypal_locator[1]}' radio button is selected unexpectedly."
-
-        # Click PayPal and verify selection change
-        payment_paypal.click()
-        assert payment_paypal.is_selected(), f"Failed to select '{payment_paypal_locator[1]}' radio button."
-        assert not payment_card.is_selected(), f"'{payment_card_locator[1]}' radio button is still selected after selecting PayPal."
-        print(f"  - PayPal radio (ID: {payment_paypal_locator[1]}) is present, enabled, and can be selected.")
-
-        # --- Verify Discount Code Input Field (as an example of another input field) ---
-        print("\nVerifying 'Discount Code' input field:")
-        discount_code_locator = (By.ID, "discountCode")
-        discount_code_input = wait.until(EC.visibility_of_element_located(discount_code_locator),
-                                         f"'{discount_code_locator[1]}' input field not visible.")
-        assert discount_code_input.is_enabled(), f"'{discount_code_locator[1]}' input field is not enabled."
-        test_discount = "TESTCODE"
-        discount_code_input.send_keys(test_discount)
-        assert discount_code_input.get_attribute("value") == test_discount, f"Failed to enter text into '{discount_code_locator[1]}'."
-        print(f"  - Discount Code input (ID: {discount_code_locator[1]}) is present, enabled, and accepts input.")
-
-        print(f"\nAll necessary input fields are present, clearly labeled, and allow user input/selection as expected.")
-        print(f"Test Case {TEST_CASE_ID} PASSED")
+        print(f"Test Case {TEST_CASE_ID} PASSED: Cart summary updated instantly to ${updated_total:.2f} as expected.")
         sys.exit(0)
 
-    except (TimeoutException, NoSuchElementException, AssertionError) as e:
-        print(f"\nTest Case {TEST_CASE_ID} FAILED: {e}")
-        if driver:
-            take_screenshot(driver, TEST_CASE_ID)
+    except TimeoutException as e:
+        print(f"Test Case {TEST_CASE_ID} FAILED: Timeout occurred while waiting for an element or condition - {e}")
+        take_screenshot(driver, TEST_CASE_ID)
+        sys.exit(1)
+    except NoSuchElementException as e:
+        print(f"Test Case {TEST_CASE_ID} FAILED: An expected element was not found on the page - {e}")
+        take_screenshot(driver, TEST_CASE_ID)
+        sys.exit(1)
+    except AssertionError as e:
+        print(f"Test Case {TEST_CASE_ID} FAILED: Assertion failed - {e}")
+        take_screenshot(driver, TEST_CASE_ID)
         sys.exit(1)
     except WebDriverException as e:
-        print(f"\nTest Case {TEST_CASE_ID} FAILED due to WebDriver error: {e}")
-        if driver:
-            take_screenshot(driver, TEST_CASE_ID)
+        print(f"Test Case {TEST_CASE_ID} FAILED: A WebDriver specific error occurred (e.g., browser crash, connection issue) - {e}")
+        take_screenshot(driver, TEST_CASE_ID)
         sys.exit(1)
     except Exception as e:
-        print(f"\nTest Case {TEST_CASE_ID} FAILED due to unexpected error: {e}")
-        if driver:
-            take_screenshot(driver, TEST_CASE_ID)
+        print(f"Test Case {TEST_CASE_ID} FAILED: An unexpected error occurred - {e}")
+        take_screenshot(driver, TEST_CASE_ID)
         sys.exit(1)
     finally:
-        # Cleanup: Quit the driver and remove the temporary HTML file
+        # 7. Cleanup
+        # Close the browser if it was opened
         if driver:
             driver.quit()
-            print("WebDriver quit.")
-        if html_file_path and os.path.exists(html_file_path):
-            os.remove(html_file_path)
-            print(f"Removed temporary HTML file: {html_file_path}")
+            print("WebDriver closed.")
+        # Remove the temporary HTML file
+        if temp_html_file and os.path.exists(temp_html_file.name):
+            os.remove(temp_html_file.name)
+            print(f"Temporary HTML file removed: {temp_html_file.name}")
 
 if __name__ == "__main__":
     run_test()

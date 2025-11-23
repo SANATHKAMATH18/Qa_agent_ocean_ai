@@ -1,24 +1,17 @@
-import os
-import sys
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service as ChromeService
+import sys
+import os
+import tempfile
 
-# Test Case Definition
-TEST_CASE = {
-    "id": "TC-001",
-    "title": "Validate form validation error display",
-    "description": "Test that all form validation errors are displayed in red text when required fields are left empty.",
-    "expected_result": "Validation errors are displayed in red text for all empty required fields.",
-    "source_document": "checkout.html"
-}
+# Test Case ID for reporting
+TEST_CASE_ID = "TC-001"
 
-# Target HTML content
-TARGET_HTML_CONTENT = """
+# CRITICAL: HTML content embedded as a raw string with triple quotes
+HTML_CONTENT = r'''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -202,149 +195,124 @@ TARGET_HTML_CONTENT = """
     </script>
 </body>
 </html>
-"""
+'''
 
-def setup_html_file(filename, content):
-    """Creates a local HTML file for testing."""
-    try:
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(content)
-        print(f"Created local HTML file: {filename}")
-        return os.path.abspath(filename)
-    except IOError as e:
-        print(f"Error creating HTML file {filename}: {e}")
-        sys.exit(1)
+driver = None
+temp_file = None
+try:
+    # Create a temporary HTML file to load in the browser
+    temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8')
+    temp_file.write(HTML_CONTENT)
+    temp_file.close()
+    file_path = 'file:///' + temp_file.name.replace('\\', '/')
 
-def take_screenshot(driver, test_id):
-    """Takes a screenshot and saves it with the test ID."""
-    screenshot_name = f"{test_id}_failure.png"
-    try:
+    # Initialize the Chrome driver using ChromeDriverManager
+    driver = webdriver.Chrome(ChromeDriverManager().install())
+    driver.maximize_window()  # Maximize window for better visibility
+    # Initialize WebDriverWait for explicit waits
+    wait = WebDriverWait(driver, 10)
+
+    # Navigate to the temporary HTML file
+    driver.get(file_path)
+    print(f"Navigated to: {file_path}")
+
+    # --- Test Steps: Successful Order with Standard Shipping and Discount ---
+
+    # 1. Add items to the cart
+    print("Adding Product A, B, and C to the cart...")
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//div[span='Product A - $50']/button[text()='Add to Cart']"))).click()
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//div[span='Product B - $30']/button[text()='Add to Cart']"))).click()
+    wait.until(EC.element_to_be_clickable((By.XPATH, "//div[span='Product C - $20']/button[text()='Add to Cart']"))).click()
+    
+    # Verify initial total (50 + 30 + 20 = 100)
+    total_element = wait.until(EC.visibility_of_element_located((By.ID, "total")))
+    assert total_element.text == "100.00", f"Assertion Failed: Expected initial total '100.00', but got '{total_element.text}'"
+    print(f"Items added. Current total: ${total_element.text}")
+
+    # 2. Apply the 'SAVE15' discount
+    print("Applying discount code 'SAVE15'...")
+    discount_code_input = wait.until(EC.visibility_of_element_located((By.ID, "discountCode")))
+    discount_code_input.send_keys("SAVE15")
+    
+    apply_discount_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//h3[text()='Discount Code']/following-sibling::button[text()='Apply']")))
+    apply_discount_button.click()
+    
+    # Verify discount message and its color
+    discount_message_element = wait.until(EC.visibility_of_element_located((By.ID, "discountMessage")))
+    assert discount_message_element.text == "Discount applied!", f"Assertion Failed: Expected discount message 'Discount applied!', but got '{discount_message_element.text}'"
+    # Check for green color (rgb(0, 128, 0) is the computed style for 'green')
+    assert discount_message_element.value_of_css_property('color') == 'rgb(0, 128, 0)', \
+        f"Assertion Failed: Expected discount message color 'rgb(0, 128, 0)', but got '{discount_message_element.value_of_css_property('color')}'"
+    
+    # Verify discounted total (100 * 0.85 = 85)
+    total_element = wait.until(EC.visibility_of_element_located((By.ID, "total")))
+    assert total_element.text == "85.00", f"Assertion Failed: Expected discounted total '85.00', but got '{total_element.text}'"
+    print(f"Discount 'SAVE15' applied. New total: ${total_element.text}")
+
+    # 3. Provide all required user details
+    print("Entering user details (Name, Email, Address)...")
+    wait.until(EC.visibility_of_element_located((By.ID, "name"))).send_keys("Automation User")
+    wait.until(EC.visibility_of_element_located((By.ID, "email"))).send_keys("automation.user@example.com")
+    wait.until(EC.visibility_of_element_located((By.ID, "address"))).send_keys("123 Test Street, Test City, 12345")
+    print("User details entered.")
+
+    # 4. Select standard shipping
+    print("Selecting Standard Shipping method...")
+    standard_shipping_radio = wait.until(EC.element_to_be_clickable((By.ID, "shipping-standard")))
+    # Standard shipping is checked by default in HTML, but explicitly clicking ensures interaction
+    if not standard_shipping_radio.is_selected():
+        standard_shipping_radio.click()
+    assert standard_shipping_radio.is_selected(), "Assertion Failed: Standard shipping radio button is not selected."
+    # The HTML states "Standard (Free)", so the cost is implicitly $0.00.
+    print("Standard Shipping selected (Cost: $0.00).")
+
+    # 5. Select payment method (Credit Card is checked by default)
+    print("Selecting Credit Card payment method...")
+    credit_card_radio = wait.until(EC.element_to_be_clickable((By.ID, "payment-card")))
+    # Credit Card is checked by default in HTML, but explicitly clicking ensures interaction
+    if not credit_card_radio.is_selected():
+        credit_card_radio.click()
+    assert credit_card_radio.is_selected(), "Assertion Failed: Credit Card payment radio button is not selected."
+    print("Credit Card payment method selected.")
+
+    # 6. Verify 'Pay Now' button is green and submit the order
+    print("Verifying 'Pay Now' button color and submitting the order...")
+    pay_button = wait.until(EC.element_to_be_clickable((By.ID, "payBtn")))
+    pay_button_color = pay_button.value_of_css_property('background-color')
+    # The CSS specifies 'green', which typically resolves to rgba(0, 128, 0, 1) or rgb(0, 128, 0)
+    assert pay_button_color in ['rgba(0, 128, 0, 1)', 'rgb(0, 128, 0)'], \
+        f"Assertion Failed: Expected Pay Now button background color to be green, but got '{pay_button_color}'"
+    print("Pay Now button color verified as green.")
+    
+    pay_button.click()
+    print("Clicked 'Pay Now' button to process payment.")
+
+    # 7. Verify the success message is displayed
+    success_message_element = wait.until(EC.visibility_of_element_located((By.ID, "success")))
+    assert success_message_element.is_displayed(), "Assertion Failed: Success message is not displayed after payment."
+    assert success_message_element.text == "Payment Successful!", \
+        f"Assertion Failed: Expected success message 'Payment Successful!', but got '{success_message_element.text}'"
+    print("Order successfully placed. Success message 'Payment Successful!' displayed and verified.")
+
+    # If all assertions pass, the test case is successful
+    print(f"Test Case {TEST_CASE_ID} PASSED")
+    sys.exit(0)
+
+except Exception as e:
+    # Handle any exceptions that occur during the test
+    print(f"Test Case {TEST_CASE_ID} FAILED")
+    print(f"An error occurred: {e}")
+    if driver:
+        # Take a screenshot on failure
+        screenshot_name = f"{TEST_CASE_ID}_FAILED.png"
         driver.save_screenshot(screenshot_name)
-        print(f"Screenshot saved: {screenshot_name}")
-    except WebDriverException as e:
-        print(f"Could not take screenshot: {e}")
-
-def run_test():
-    """Executes the Selenium test case."""
-    driver = None
-    html_file_path = None
-    test_id = TEST_CASE["id"]
-
-    try:
-        # 1. Setup local HTML file
-        html_file_path = setup_html_file(TEST_CASE["source_document"], TARGET_HTML_CONTENT)
-        file_url = f"file:///{html_file_path}"
-
-        # 2. Initialize WebDriver
-        # Use ChromeDriverManager to automatically download and manage the ChromeDriver
-        service = ChromeService(ChromeDriverManager().install())
-        driver = webdriver.Chrome(service=service)
-        driver.maximize_window()
-        
-        # 3. Navigate to the local HTML file
-        driver.get(file_url)
-        print(f"Navigated to: {file_url}")
-
-        # Initialize WebDriverWait for explicit waits
-        wait = WebDriverWait(driver, 10)
-
-        # 4. Locate the "Pay Now" button
-        pay_button = wait.until(EC.element_to_be_clickable((By.ID, "payBtn")))
-        print("Found 'Pay Now' button.")
-
-        # 5. Leave required fields empty and click "Pay Now"
-        # The fields are already empty by default on page load
-        pay_button.click()
-        print("Clicked 'Pay Now' button with empty required fields.")
-
-        # 6. Verify validation errors are displayed and in red text
-        error_elements_data = [
-            {"id": "nameError", "expected_text": "Name is required"},
-            {"id": "emailError", "expected_text": "Email is required"},
-            {"id": "addressError", "expected_text": "Address is required"}
-        ]
-        
-        expected_color_rgb = "rgba(255, 0, 0, 1)" # Red color in RGBA format
-
-        all_errors_valid = True
-        for error_data in error_elements_data:
-            error_id = error_data["id"]
-            expected_text = error_data["expected_text"]
-            
-            try:
-                # Wait for the error message to be visible
-                error_element = wait.until(EC.visibility_of_element_located((By.ID, error_id)))
-                print(f"Found error element: {error_id}")
-
-                # Get the displayed text
-                actual_text = error_element.text.strip()
-                print(f"Actual text for {error_id}: '{actual_text}'")
-
-                # Assert text content
-                assert actual_text == expected_text, \
-                    f"FAIL: Error message for {error_id} is incorrect. Expected '{expected_text}', got '{actual_text}'."
-                print(f"PASS: Error message for {error_id} is correct: '{actual_text}'.")
-
-                # Get the CSS color property
-                actual_color = error_element.value_of_css_property("color")
-                print(f"Actual color for {error_id}: '{actual_color}'")
-
-                # Assert color is red
-                assert actual_color == expected_color_rgb, \
-                    f"FAIL: Error message color for {error_id} is incorrect. Expected '{expected_color_rgb}', got '{actual_color}'."
-                print(f"PASS: Error message color for {error_id} is red.")
-
-            except (TimeoutException, NoSuchElementException) as e:
-                print(f"FAIL: Error element {error_id} not found or not visible: {e}")
-                all_errors_valid = False
-                break
-            except AssertionError as e:
-                print(e)
-                all_errors_valid = False
-                break
-            except Exception as e:
-                print(f"An unexpected error occurred while checking {error_id}: {e}")
-                all_errors_valid = False
-                break
-
-        # Final assertion for the test case
-        if all_errors_valid:
-            print(f"Test Case {test_id} PASSED")
-            sys.exit(0)
-        else:
-            print(f"Test Case {test_id} FAILED")
-            take_screenshot(driver, test_id)
-            sys.exit(1)
-
-    except TimeoutException as e:
-        print(f"Test Case {test_id} FAILED: Element not found or not interactive within the given time. Error: {e}")
-        take_screenshot(driver, test_id)
-        sys.exit(1)
-    except NoSuchElementException as e:
-        print(f"Test Case {test_id} FAILED: An element was not found. Error: {e}")
-        take_screenshot(driver, test_id)
-        sys.exit(1)
-    except WebDriverException as e:
-        print(f"Test Case {test_id} FAILED: A WebDriver specific error occurred. Error: {e}")
-        take_screenshot(driver, test_id)
-        sys.exit(1)
-    except AssertionError as e:
-        print(f"Test Case {test_id} FAILED: Assertion failed. Error: {e}")
-        take_screenshot(driver, test_id)
-        sys.exit(1)
-    except Exception as e:
-        print(f"Test Case {test_id} FAILED: An unexpected error occurred. Error: {e}")
-        take_screenshot(driver, test_id)
-        sys.exit(1)
-    finally:
-        if driver:
-            driver.quit()
-            print("WebDriver closed.")
-        if html_file_path and os.path.exists(html_file_path):
-            # Optionally, clean up the created HTML file
-            # os.remove(html_file_path)
-            # print(f"Cleaned up local HTML file: {html_file_path}")
-            pass # Keeping the file for post-run inspection if needed
-
-if __name__ == "__main__":
-    run_test()
+        print(f"Screenshot saved as {screenshot_name}")
+    sys.exit(1)
+finally:
+    # Ensure the browser is closed and temporary file is removed
+    if driver:
+        driver.quit()
+        print("Browser closed.")
+    if temp_file and os.path.exists(temp_file.name):
+        os.remove(temp_file.name)
+        print(f"Temporary file {temp_file.name} removed.")

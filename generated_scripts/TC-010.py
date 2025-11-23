@@ -2,17 +2,17 @@ import sys
 import os
 import tempfile
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
+from selenium.webdriver.chrome.service import Service as ChromeService
 
 # Test Case ID
 TEST_CASE_ID = "TC-010"
-# Temporary HTML file content
-HTML_CONTENT = """
-<!DOCTYPE html>
+
+# Target HTML content
+HTML_CONTENT = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -194,78 +194,76 @@ HTML_CONTENT = """
         }
     </script>
 </body>
-</html>
-"""
+</html>'''
 
-# Setup for temporary HTML file
-temp_html_file = None
-temp_html_file_path = None
 driver = None
+temp_html_file = None
 
 try:
     # Create a temporary HTML file
-    temp_html_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8')
-    temp_html_file.write(HTML_CONTENT)
-    temp_html_file.close()
-    temp_html_file_path = temp_html_file.name
+    fd, path = tempfile.mkstemp(suffix=".html")
+    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        f.write(HTML_CONTENT)
+    temp_html_file = path
 
     # Initialize Chrome WebDriver
     # Use ChromeDriverManager to automatically download and manage the ChromeDriver executable
-    service = Service(ChromeDriverManager().install())
+    service = ChromeService(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service)
-    driver.maximize_window() # Maximize the browser window for better visibility
-    
-    # Initialize WebDriverWait for explicit waits
-    wait = WebDriverWait(driver, 10)
+    driver.maximize_window()
 
-    # Open the local HTML file
-    driver.get(f"file:///{temp_html_file_path}")
+    # Navigate to the local HTML file
+    driver.get(f"file:///{temp_html_file}")
 
-    # --- Test Scenario: Payment processing with missing user details ---
+    # --- Test Steps for TC-010: Successful Payment Message Visibility ---
 
-    # 1. Add a product to the cart to ensure a total exists and the pay button is relevant
+    # 1. Add a product to the cart to enable checkout
     print("Adding 'Product A' to cart...")
-    add_to_cart_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='item'][1]/button")))
+    add_to_cart_btn = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.XPATH, "//div[@class='item'][1]/button"))
+    )
     add_to_cart_btn.click()
-    print("Product added to cart.")
+    print("Product A added.")
 
-    # 2. Do NOT fill in required user details (name, email, address)
-    # The fields are left empty by default, which is the core of this test case.
-    print("Leaving user details (Name, Email, Address) empty as per test case.")
+    # 2. Fill in user details (Name, Email, Address)
+    print("Filling user details...")
+    name_input = WebDriverWait(driver, 10).until(
+        EC.visibility_of_element_located((By.ID, "name"))
+    )
+    name_input.send_keys("John Doe")
+
+    email_input = WebDriverWait(driver, 10).until(
+        EC.visibility_of_element_located((By.ID, "email"))
+    )
+    email_input.send_keys("john.doe@example.com")
+
+    address_textarea = WebDriverWait(driver, 10).until(
+        EC.visibility_of_element_located((By.ID, "address"))
+    )
+    address_textarea.send_keys("123 Main St, Anytown, USA")
+    print("User details filled.")
 
     # 3. Click the "Pay Now" button
     print("Clicking 'Pay Now' button...")
-    pay_button = wait.until(EC.element_to_be_clickable((By.ID, "payBtn")))
+    pay_button = WebDriverWait(driver, 10).until(
+        EC.element_to_be_clickable((By.ID, "payBtn"))
+    )
     pay_button.click()
     print("'Pay Now' button clicked.")
 
-    # --- Verification ---
+    # 4. Verify that the success message is displayed
+    print("Verifying payment success message visibility...")
+    success_message = WebDriverWait(driver, 10).until(
+        EC.visibility_of_element_located((By.ID, "success"))
+    )
 
-    # 4. Verify that the "Payment Successful!" message is NOT displayed
-    success_message = wait.until(EC.presence_of_element_located((By.ID, "success")))
-    assert not success_message.is_displayed(), "Assertion Failed: Payment success message should NOT be displayed when user details are missing."
-    print("Verification: Payment success message is NOT displayed (Expected).")
+    # Assert the text content of the success message
+    expected_message = "Payment Successful!"
+    actual_message = success_message.text
+    assert actual_message == expected_message, \
+        f"Expected success message '{expected_message}' but got '{actual_message}'"
 
-    # 5. Verify that error messages for missing required user details are displayed and correct
-    
-    # Verify Name error message
-    name_error = wait.until(EC.visibility_of_element_located((By.ID, "nameError")))
-    assert name_error.text == "Name is required", \
-        f"Assertion Failed: Expected name error 'Name is required', but got '{name_error.text}'"
-    print(f"Verification: Name error message '{name_error.text}' is displayed (Expected).")
-
-    # Verify Email error message
-    email_error = wait.until(EC.visibility_of_element_located((By.ID, "emailError")))
-    assert email_error.text == "Email is required", \
-        f"Assertion Failed: Expected email error 'Email is required', but got '{email_error.text}'"
-    print(f"Verification: Email error message '{email_error.text}' is displayed (Expected).")
-
-    # Verify Address error message
-    address_error = wait.until(EC.visibility_of_element_located((By.ID, "addressError")))
-    assert address_error.text == "Address is required", \
-        f"Assertion Failed: Expected address error 'Address is required', but got '{address_error.text}'"
-    print(f"Verification: Address error message '{address_error.text}' is displayed (Expected).")
-
+    print(f"Success message found: '{actual_message}'")
     print(f"Test Case {TEST_CASE_ID} PASSED")
     sys.exit(0)
 
@@ -280,9 +278,10 @@ except Exception as e:
     sys.exit(1)
 
 finally:
-    # Clean up: Close the browser and remove the temporary HTML file
+    # Close the browser
     if driver:
         driver.quit()
-    if temp_html_file_path and os.path.exists(temp_html_file_path):
-        os.remove(temp_html_file_path)
-        print(f"Cleaned up temporary HTML file: {temp_html_file_path}")
+    # Clean up the temporary HTML file
+    if temp_html_file and os.path.exists(temp_html_file):
+        os.remove(temp_html_file)
+        print(f"Cleaned up temporary file: {temp_html_file}")

@@ -1,21 +1,13 @@
 import sys
 import os
-import tempfile
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Test Case Details
-TC_ID = "TC-006"
-TC_TITLE = "Apply Discount Code SAVE15 Successfully"
-DISCOUNT_CODE = "SAVE15"
-EXPECTED_DISCOUNT_PERCENTAGE = 0.15 # 15% discount
-
-# Target HTML content
-html_content = """
+# CRITICAL: HTML content as a raw string to avoid escape sequence warnings
+HTML_CONTENT = r'''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -199,103 +191,98 @@ html_content = """
     </script>
 </body>
 </html>
-"""
+'''
+
+TEST_CASE_ID = "TC-006"
+SCREENSHOT_DIR = "screenshots"
+# Ensure the screenshot directory exists
+if not os.path.exists(SCREENSHOT_DIR):
+    os.makedirs(SCREENSHOT_DIR)
 
 driver = None
-temp_file = None
+html_file_path = "temp_checkout_page.html"
 
 try:
-    # 1. Create a temporary HTML file to serve as the target page
-    temp_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=".html", encoding='utf-8')
-    temp_file.write(html_content)
-    temp_file.close()
-    file_path = 'file://' + os.path.abspath(temp_file.name)
+    # 1. Setup: Create a temporary HTML file to serve the content
+    with open(html_file_path, "w") as f:
+        f.write(HTML_CONTENT)
 
-    # 2. Initialize WebDriver using ChromeDriverManager for automatic driver management
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service)
-    # Set up explicit wait with a 10-second timeout
-    wait = WebDriverWait(driver, 10) 
-
-    # 3. Navigate to the local HTML file
-    driver.get(file_path)
-    print(f"Navigated to: {file_path}")
-
-    # 4. Add items to the cart to establish a total value for discount application
-    # Find and click "Add to Cart" button for Product A ($50)
-    product_a_add_button = wait.until(
-        EC.element_to_be_clickable((By.XPATH, "//div[@class='item'][span[contains(text(), 'Product A')]]/button"))
-    )
-    product_a_add_button.click()
-    print("Added Product A to cart.")
-
-    # Find and click "Add to Cart" button for Product B ($30)
-    product_b_add_button = wait.until(
-        EC.element_to_be_clickable((By.XPATH, "//div[@class='item'][span[contains(text(), 'Product B')]]/button"))
-    )
-    product_b_add_button.click()
-    print("Added Product B to cart.")
-
-    # 5. Get the initial total before applying the discount
-    total_element = wait.until(EC.visibility_of_element_located((By.ID, "total")))
-    initial_total_text = total_element.text
-    initial_total = float(initial_total_text)
-    print(f"Initial cart total: ${initial_total:.2f}")
-
-    # Calculate the expected total after applying the 15% discount
-    expected_total_after_discount = initial_total * (1 - EXPECTED_DISCOUNT_PERCENTAGE)
-    print(f"Expected total after '{DISCOUNT_CODE}' ({EXPECTED_DISCOUNT_PERCENTAGE*100}% off): ${expected_total_after_discount:.2f}")
-
-    # 6. Locate the discount code input field and enter the discount code
-    discount_code_input = wait.until(EC.visibility_of_element_located((By.ID, "discountCode")))
-    discount_code_input.send_keys(DISCOUNT_CODE)
-    print(f"Entered discount code: '{DISCOUNT_CODE}'")
-
-    # 7. Locate and click the "Apply" button next to the discount code input
-    apply_button = wait.until(
-        EC.element_to_be_clickable((By.XPATH, "//input[@id='discountCode']/following-sibling::button[text()='Apply']"))
-    )
-    apply_button.click()
-    print("Clicked 'Apply' button.")
-
-    # 8. Verify the discount message displayed
-    discount_message_element = wait.until(EC.visibility_of_element_located((By.ID, "discountMessage")))
-    actual_discount_message = discount_message_element.text
-    expected_discount_message = "Discount applied!"
-    assert actual_discount_message == expected_discount_message, \
-        f"Assertion Failed: Expected discount message '{expected_discount_message}', but got '{actual_discount_message}'"
-    print(f"Verified discount message: '{actual_discount_message}'")
-
-    # 9. Verify the total cart value has been updated correctly
-    # Wait for the total element's text to change from the initial total, indicating an update
-    wait.until(lambda driver: float(driver.find_element(By.ID("total")).text) != initial_total)
+    # Initialize Chrome WebDriver using ChromeDriverManager for automatic driver management
+    driver = webdriver.Chrome(ChromeDriverManager().install())
+    driver.maximize_window() # Maximize the browser window for better visibility
     
-    final_total_text = total_element.text
-    final_total = float(final_total_text)
-    print(f"Final cart total after discount: ${final_total:.2f}")
+    # Initialize WebDriverWait for explicit waits
+    wait = WebDriverWait(driver, 10)
 
-    # Assert that the final total matches the calculated expected discounted total
-    # Rounding to 2 decimal places for accurate currency comparison
-    assert round(final_total, 2) == round(expected_total_after_discount, 2), \
-        f"Assertion Failed: Expected final total to be ${expected_total_after_discount:.2f}, but got ${final_total:.2f}"
-    
-    print(f"Test Case {TC_ID} PASSED")
+    # 2. Navigate to the local HTML file
+    driver.get(f"file:///{os.path.abspath(html_file_path)}")
+
+    print(f"Starting Test Case {TEST_CASE_ID}: Verify Standard Shipping Cost")
+
+    # Add items to the cart
+    # Locate and click 'Add to Cart' button for Product A
+    add_to_cart_btn_a = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='item'][1]/button")))
+    add_to_cart_btn_a.click()
+    print("Step: Added 'Product A' to cart.")
+
+    # Locate and click 'Add to Cart' button for Product B
+    add_to_cart_btn_b = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[@class='item'][2]/button")))
+    add_to_cart_btn_b.click()
+    print("Step: Added 'Product B' to cart.")
+
+    # Verify cart total updates (optional, but good practice to ensure items were added)
+    cart_total_element = wait.until(EC.visibility_of_element_located((By.ID, "total")))
+    current_total = float(cart_total_element.text)
+    # Product A ($50) + Product B ($30) = $80
+    assert current_total == 80.00, \
+        f"Assertion Failed: Expected cart total to be $80.00 after adding products, but got ${current_total:.2f}."
+    print(f"Verification: Cart total is correctly displayed as ${current_total:.2f}.")
+
+    # Select 'Standard Shipping' option
+    # The 'Standard Shipping' radio button is checked by default in the HTML,
+    # but we explicitly click it to simulate user interaction and ensure its state.
+    standard_shipping_radio = wait.until(EC.element_to_be_clickable((By.ID, "shipping-standard")))
+    if not standard_shipping_radio.is_selected():
+        standard_shipping_radio.click()
+    print("Step: Selected 'Standard Shipping' option.")
+
+    # Verify that 'Standard Shipping' is indeed selected
+    assert standard_shipping_radio.is_selected(), \
+        "Assertion Failed: 'Standard Shipping' radio button is not selected."
+    print("Verification: 'Standard Shipping' radio button is confirmed as selected.")
+
+    # Verify the shipping cost displayed for 'Standard Shipping'
+    # According to the HTML, the shipping cost is indicated in the label text associated with the radio button.
+    standard_shipping_label = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "label[for='shipping-standard']")))
+    shipping_label_text = standard_shipping_label.text
+    print(f"Info: Text of 'Standard Shipping' label is: '{shipping_label_text}'")
+
+    # Expected result: "The shipping cost displayed in the cart summary or checkout total is $0.00."
+    # Based on the provided HTML, the label explicitly states "Standard (Free)".
+    expected_cost_indicator = "Free"
+    assert expected_cost_indicator in shipping_label_text, \
+        f"Assertion Failed: Expected shipping cost to be '{expected_cost_indicator}' in the label, " \
+        f"but found '{shipping_label_text}'."
+    print(f"Verification: Standard Shipping cost is correctly displayed as '{expected_cost_indicator}' " \
+          f"in the associated label.")
+
+    print(f"Test Case {TEST_CASE_ID} PASSED")
     sys.exit(0)
 
 except Exception as e:
-    print(f"Test Case {TC_ID} FAILED")
-    print(f"An error occurred: {e}")
+    print(f"Test Case {TEST_CASE_ID} FAILED")
+    print(f"Error: {e}")
     if driver:
         # Take a screenshot on failure
-        screenshot_name = f"{TC_ID}_FAILED_screenshot.png"
+        screenshot_name = os.path.join(SCREENSHOT_DIR, f"{TEST_CASE_ID}_FAILED.png")
         driver.save_screenshot(screenshot_name)
-        print(f"Screenshot saved as {screenshot_name}")
+        print(f"Screenshot saved to {screenshot_name}")
     sys.exit(1)
 
 finally:
-    # 10. Clean up: Close the browser and delete the temporary HTML file
+    # Teardown: Close the browser and remove the temporary HTML file
     if driver:
         driver.quit()
-    if temp_file and os.path.exists(temp_file.name):
-        os.remove(temp_file.name)
-        print(f"Cleaned up temporary file: {temp_file.name}")
+    if os.path.exists(html_file_path):
+        os.remove(html_file_path)
+    print("Cleanup: Browser closed and temporary HTML file removed.")

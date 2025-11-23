@@ -4,16 +4,11 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, WebDriverException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, AssertionError, WebDriverException
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Define test case details
-TEST_CASE_ID = "TC-005"
-TEST_CASE_TITLE = "Verify Success Message Visibility After Payment"
-EXPECTED_SUCCESS_MESSAGE = "Payment Successful!"
-
-# --- Create a temporary HTML file for the test ---
-HTML_CONTENT = """
+# CRITICAL: HTML content as a raw string with triple quotes
+HTML_CONTENT = r'''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -197,151 +192,146 @@ HTML_CONTENT = """
     </script>
 </body>
 </html>
-"""
+'''
 
-HTML_FILE_NAME = "checkout.html"
+TEST_CASE_ID = "TC-005"
+TEMP_HTML_FILE = "temp_checkout_page.html"
 SCREENSHOT_DIR = "screenshots"
 
-def setup_driver():
-    """Initializes and returns a Chrome WebDriver."""
-    try:
-        # Setup Chrome options (optional, but good for headless or specific settings)
-        chrome_options = webdriver.ChromeOptions()
-        # chrome_options.add_argument("--headless") # Uncomment to run in headless mode
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        
-        # Install and get the path to the ChromeDriver executable
-        driver_path = ChromeDriverManager().install()
-        
-        # Initialize the Chrome WebDriver
-        driver = webdriver.Chrome(executable_path=driver_path, options=chrome_options)
-        driver.maximize_window()
-        return driver
-    except WebDriverException as e:
-        print(f"Error setting up WebDriver: {e}")
-        sys.exit(1)
-
-def create_html_file(content, filename):
-    """Creates a local HTML file."""
-    try:
-        with open(filename, "w") as f:
-            f.write(content)
-        return os.path.abspath(filename)
-    except IOError as e:
-        print(f"Error creating HTML file {filename}: {e}")
-        sys.exit(1)
-
-def take_screenshot(driver, test_id):
+def take_screenshot(driver, filename):
     """Takes a screenshot and saves it to the screenshots directory."""
     if not os.path.exists(SCREENSHOT_DIR):
         os.makedirs(SCREENSHOT_DIR)
-    screenshot_path = os.path.join(SCREENSHOT_DIR, f"{test_id}_failure.png")
+    filepath = os.path.join(SCREENSHOT_DIR, filename)
     try:
-        driver.save_screenshot(screenshot_path)
-        print(f"Screenshot saved to {screenshot_path}")
+        driver.save_screenshot(filepath)
+        print(f"Screenshot saved to {filepath}")
     except Exception as e:
         print(f"Failed to take screenshot: {e}")
 
 def run_test():
-    """Executes the Selenium test case."""
     driver = None
-    html_file_path = None
+    temp_html_file_path = os.path.abspath(TEMP_HTML_FILE)
+
     try:
-        # 1. Create the local HTML file
-        html_file_path = create_html_file(HTML_CONTENT, HTML_FILE_NAME)
-        
-        # 2. Initialize WebDriver
-        driver = setup_driver()
-        
-        # 3. Navigate to the local HTML file
-        driver.get(f"file:///{html_file_path}")
-        print(f"Navigated to: {driver.current_url}")
+        # Create a temporary HTML file to load in the browser
+        with open(TEMP_HTML_FILE, "w") as f:
+            f.write(HTML_CONTENT)
 
-        # Set up WebDriverWait for explicit waits
-        wait = WebDriverWait(driver, 10)
+        # Initialize Chrome WebDriver using ChromeDriverManager
+        driver = webdriver.Chrome(ChromeDriverManager().install())
+        driver.maximize_window()
 
-        # --- Test Case TC-005: Verify Success Message Visibility After Payment ---
+        # Navigate to the local HTML file
+        driver.get(f"file://{temp_html_file_path}")
 
-        # Step 1: Add a product to the cart to ensure a non-zero total
-        print("Adding 'Product A' to cart...")
-        add_to_cart_button = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//div[@class='item'][1]/button")),
-            "Timed out waiting for 'Add to Cart' button for Product A"
-        )
-        add_to_cart_button.click()
-        print("Product A added to cart.")
+        print(f"Starting Test Case {TEST_CASE_ID}: Attempt to Apply Discount Code Multiple Times")
 
-        # Step 2: Fill in user details
-        print("Filling user details...")
-        name_input = wait.until(EC.visibility_of_element_located((By.ID, "name")), "Timed out waiting for 'name' input")
-        name_input.send_keys("John Doe")
-
-        email_input = wait.until(EC.visibility_of_element_located((By.ID, "email")), "Timed out waiting for 'email' input")
-        email_input.send_keys("john.doe@example.com")
-
-        address_textarea = wait.until(EC.visibility_of_element_located((By.ID, "address")), "Timed out waiting for 'address' textarea")
-        address_textarea.send_keys("123 Main St, Anytown, USA")
-        print("User details filled.")
-
-        # Step 3: Click the "Pay Now" button
-        print("Clicking 'Pay Now' button...")
-        pay_button = wait.until(
-            EC.element_to_be_clickable((By.ID, "payBtn")),
-            "Timed out waiting for 'Pay Now' button"
-        )
-        pay_button.click()
-        print("'Pay Now' button clicked.")
-
-        # Step 4: Verify the success message appears
-        print(f"Waiting for success message: '{EXPECTED_SUCCESS_MESSAGE}'...")
-        success_message_element = wait.until(
-            EC.visibility_of_element_located((By.ID, "success")),
-            f"Timed out waiting for success message with ID 'success' to be visible."
+        # 1. Add items to the cart
+        # Find all "Add to Cart" buttons using XPath
+        add_to_cart_buttons = WebDriverWait(driver, 10).until(
+            EC.presence_of_all_elements_located((By.XPATH, "//button[contains(text(), 'Add to Cart')]"))
         )
         
-        actual_success_message = success_message_element.text.strip()
+        # Click the first two items (Product A and Product B) to add them to the cart
+        if len(add_to_cart_buttons) < 2:
+            raise AssertionError("Not enough 'Add to Cart' buttons found to add multiple items.")
         
-        # Assertion
-        assert actual_success_message == EXPECTED_SUCCESS_MESSAGE, \
-            f"Expected success message '{EXPECTED_SUCCESS_MESSAGE}' but got '{actual_success_message}'"
+        add_to_cart_buttons[0].click() # Add Product A ($50)
+        add_to_cart_buttons[1].click() # Add Product B ($30)
+        print("Added Product A and Product B to cart.")
+
+        # Get the initial total before any discount application
+        total_element = WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.ID, "total"))
+        )
+        initial_cart_total = float(total_element.text)
+        print(f"Initial cart total: ${initial_cart_total:.2f}")
         
-        print(f"Success message found: '{actual_success_message}'")
+        # Assert the initial total is correct (50 + 30 = 80)
+        expected_initial_total = 80.0
+        assert abs(initial_cart_total - expected_initial_total) < 0.01, \
+            f"Assertion Failed: Expected initial total ${expected_initial_total:.2f}, but got ${initial_cart_total:.2f}"
+        print(f"Verified initial cart total is ${initial_cart_total:.2f}.")
+
+        # Locate discount code input, apply button, and message span
+        discount_code_input = WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.ID, "discountCode"))
+        )
+        apply_discount_button = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.XPATH, "//button[text()='Apply']"))
+        )
+        discount_message_span = WebDriverWait(driver, 10).until(
+            EC.visibility_of_element_located((By.ID, "discountMessage"))
+        )
+
+        # 2. Successfully apply the 'SAVE15' discount for the first time
+        print("Attempting to apply 'SAVE15' discount for the first time...")
+        discount_code_input.send_keys("SAVE15")
+        apply_discount_button.click()
+
+        # Wait for the success message to appear
+        WebDriverWait(driver, 10).until(
+            EC.text_to_be_present_in_element((By.ID, "discountMessage"), "Discount applied!")
+        )
+        # Assert the discount success message
+        assert discount_message_span.text == "Discount applied!", \
+            f"Assertion Failed: Expected 'Discount applied!' message, but got '{discount_message_span.text}'"
+        print("First discount 'SAVE15' applied successfully.")
+
+        # Verify the total amount after the first discount (80 * 0.85 = 68.0)
+        first_discounted_total = float(total_element.text)
+        expected_first_discounted_total = initial_cart_total * 0.85 
+        assert abs(first_discounted_total - expected_first_discounted_total) < 0.01, \
+            f"Assertion Failed: Expected total after first discount ${expected_first_discounted_total:.2f}, but got ${first_discounted_total:.2f}"
+        print(f"Verified total after first discount: ${first_discounted_total:.2f}")
+
+        # 3. Attempt to apply the same discount code 'SAVE15' again
+        print("Attempting to apply 'SAVE15' discount for the second time...")
+        # Clear the input field before re-entering the code (good practice)
+        discount_code_input.clear()
+        discount_code_input.send_keys("SAVE15")
+        apply_discount_button.click()
+
+        # Wait for the message indicating the discount cannot be applied again
+        WebDriverWait(driver, 10).until(
+            EC.text_to_be_present_in_element((By.ID, "discountMessage"), "Discount already applied")
+        )
+        expected_message_second_attempt = "Discount already applied"
+        # Assert the message for the second attempt
+        assert discount_message_span.text == expected_message_second_attempt, \
+            f"Assertion Failed: Expected message '{expected_message_second_attempt}', but got '{discount_message_span.text}'"
+        print(f"Verified message for second attempt: '{discount_message_span.text}'")
+
+        # Verify that the total amount has NOT changed after the second attempt
+        second_attempt_total = float(total_element.text)
+        assert abs(second_attempt_total - first_discounted_total) < 0.01, \
+            f"Assertion Failed: Total changed after second discount attempt. Expected ${first_discounted_total:.2f}, but got ${second_attempt_total:.2f}"
+        print(f"Verified total remained unchanged after second discount attempt: ${second_attempt_total:.2f}")
+
         print(f"Test Case {TEST_CASE_ID} PASSED")
         sys.exit(0)
 
-    except TimeoutException as e:
-        print(f"Test Case {TEST_CASE_ID} FAILED: Element not found or not visible within the given time.")
+    except (TimeoutException, NoSuchElementException, AssertionError, WebDriverException) as e:
+        print(f"Test Case {TEST_CASE_ID} FAILED")
         print(f"Error: {e}")
         if driver:
-            take_screenshot(driver, TEST_CASE_ID)
-        sys.exit(1)
-    except NoSuchElementException as e:
-        print(f"Test Case {TEST_CASE_ID} FAILED: An element was not found on the page.")
-        print(f"Error: {e}")
-        if driver:
-            take_screenshot(driver, TEST_CASE_ID)
-        sys.exit(1)
-    except AssertionError as e:
-        print(f"Test Case {TEST_CASE_ID} FAILED: Assertion failed.")
-        print(f"Error: {e}")
-        if driver:
-            take_screenshot(driver, TEST_CASE_ID)
+            take_screenshot(driver, f"{TEST_CASE_ID}_FAILED.png")
         sys.exit(1)
     except Exception as e:
-        print(f"Test Case {TEST_CASE_ID} FAILED: An unexpected error occurred.")
+        print(f"An unexpected error occurred during Test Case {TEST_CASE_ID}")
         print(f"Error: {e}")
         if driver:
-            take_screenshot(driver, TEST_CASE_ID)
+            take_screenshot(driver, f"{TEST_CASE_ID}_UNEXPECTED_ERROR.png")
         sys.exit(1)
     finally:
-        # Clean up: close the browser and remove the temporary HTML file
+        # Ensure the browser is closed
         if driver:
             driver.quit()
-            print("WebDriver closed.")
-        if html_file_path and os.path.exists(html_file_path):
-            os.remove(html_file_path)
-            print(f"Temporary HTML file '{HTML_FILE_NAME}' removed.")
+        # Clean up the temporary HTML file
+        if os.path.exists(temp_html_file_path):
+            os.remove(temp_html_file_path)
+            print(f"Cleaned up temporary file: {TEMP_HTML_FILE}")
 
 if __name__ == "__main__":
     run_test()

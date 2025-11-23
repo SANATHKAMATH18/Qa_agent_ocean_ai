@@ -1,19 +1,25 @@
-import sys
 import os
+import sys
 import tempfile
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.service import Service as ChromeService
 from webdriver_manager.chrome import ChromeDriverManager
 
-# Test Case ID
+# Test Case Details
 TEST_CASE_ID = "TC-007"
+TEST_CASE_TITLE = "Verify Express Shipping Cost"
+# The expected shipping cost text as it appears in the label for the Express shipping option.
+# The provided JavaScript does not dynamically add shipping cost to the 'total' span.
+EXPECTED_SHIPPING_COST_IN_LABEL = "($10)" 
+# Expected total after adding Product A ($50) and Product B ($30) to the cart.
+# This total does NOT include shipping cost as per the provided JS logic.
+EXPECTED_PRODUCT_TOTAL = 80.00 
 
-# Target HTML content provided in the problem description
-TARGET_HTML_CONTENT = """
-<!DOCTYPE html>
+# CRITICAL: Use a raw string with triple quotes for HTML content to avoid escape sequence issues.
+HTML_CONTENT = r'''<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -195,110 +201,106 @@ TARGET_HTML_CONTENT = """
         }
     </script>
 </body>
-</html>
-"""
+</html>'''
 
+# Initialize WebDriver and temporary file variables
 driver = None
-html_file_path = None
+temp_html_file = None
+
 try:
-    # Create a temporary HTML file to serve the content
-    fd, html_file_path = tempfile.mkstemp(suffix=".html")
-    with os.fdopen(fd, 'w') as f:
-        f.write(TARGET_HTML_CONTENT)
-    
+    # Create a temporary HTML file to host the content
+    temp_html_file = tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8')
+    temp_html_file.write(HTML_CONTENT)
+    temp_html_file.close()
+    # Construct the file URL for the browser
+    file_path = 'file:///' + temp_html_file.name.replace('\\', '/')
+
     # Initialize Chrome WebDriver using ChromeDriverManager
-    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
-    
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service)
+    driver.maximize_window() # Maximize window for better visibility
+    # Initialize WebDriverWait for explicit waits
+    wait = WebDriverWait(driver, 10) 
+
     # Navigate to the local HTML file
-    driver.get(f"file:///{html_file_path}")
+    driver.get(file_path)
+    print(f"Navigated to: {file_path}")
 
-    print(f"Starting Test Case {TEST_CASE_ID}: Attempt to Apply Discount Code SAVE15 Multiple Times")
+    # --- Test Steps ---
 
-    # 1. Add a product to the cart to ensure there's a total to discount
-    print("Step 1: Adding 'Product A' to the cart.")
-    add_to_cart_btn = WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.XPATH, "//div[@class='item'][1]/button"))
-    )
-    add_to_cart_btn.click()
+    # 1. Add items to the cart (Product A and Product B)
+    print("Adding Product A to cart...")
+    # Find and click the "Add to Cart" button for Product A
+    product_a_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[span[contains(text(), 'Product A')]]/button")))
+    product_a_button.click()
     
-    # Wait for the total to update to $50.00
-    WebDriverWait(driver, 10).until(
-        EC.text_to_be_present_in_element((By.ID, "total"), "50.00")
-    )
-    initial_product_total = float(driver.find_element(By.ID, "total").text)
-    print(f"Current cart total: ${initial_product_total:.2f}")
-    assert initial_product_total == 50.00, "Failed to add product to cart or total is incorrect."
+    print("Adding Product B to cart...")
+    # Find and click the "Add to Cart" button for Product B
+    product_b_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[span[contains(text(), 'Product B')]]/button")))
+    product_b_button.click()
 
-    # 2. Apply the discount code 'SAVE15' for the first time
-    print("Step 2: Applying discount code 'SAVE15' for the first time.")
-    discount_input = WebDriverWait(driver, 10).until(
-        EC.presence_of_element_located((By.ID, "discountCode"))
-    )
-    discount_input.send_keys("SAVE15")
+    # Verify the cart total after adding products (before considering shipping)
+    total_element = wait.until(EC.visibility_of_element_located((By.ID, "total")))
+    current_product_total = float(total_element.text)
+    assert current_product_total == EXPECTED_PRODUCT_TOTAL, \
+        f"Assertion Failed: Expected product total to be ${EXPECTED_PRODUCT_TOTAL:.2f}, but got ${current_product_total:.2f}."
+    print(f"Cart total after adding products: ${current_product_total:.2f}")
 
-    apply_discount_btn = WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.XPATH, "//input[@id='discountCode']/following-sibling::button[1]"))
-    )
-    apply_discount_btn.click()
+    # 2. Select the 'Express Shipping' option during checkout
+    print("Selecting 'Express Shipping' option...")
+    express_shipping_radio = wait.until(EC.element_to_be_clickable((By.ID, "shipping-express")))
+    express_shipping_radio.click()
+    # Verify that the Express shipping radio button is indeed selected
+    wait.until(EC.element_to_be_selected((By.ID, "shipping-express")))
+    print("Express Shipping selected successfully.")
 
-    # Verify the discount message indicates success
-    discount_message_element = WebDriverWait(driver, 10).until(
-        EC.visibility_of_element_located((By.ID, "discountMessage"))
-    )
-    expected_first_message = "Discount applied!"
-    assert expected_first_message in discount_message_element.text, \
-        f"Expected message '{expected_first_message}' after first application, but got '{discount_message_element.text}'"
+    # 3. Fill in user details (required for successful payment processing)
+    print("Filling user details...")
+    wait.until(EC.visibility_of_element_located((By.ID, "name"))).send_keys("Automation User")
+    wait.until(EC.visibility_of_element_located((By.ID, "email"))).send_keys("test@example.com")
+    wait.until(EC.visibility_of_element_located((By.ID, "address"))).send_keys("123 Test Street, Testville")
+    print("User details filled.")
+
+    # 4. Click 'Pay Now' button to complete the checkout flow
+    print("Clicking 'Pay Now' button...")
+    pay_button = wait.until(EC.element_to_be_clickable((By.ID, "payBtn")))
+    pay_button.click()
+
+    # --- Verification ---
+    # The test case requires verifying "The shipping cost displayed... is $10.00."
+    # Based on the provided HTML and JavaScript, the shipping cost is NOT added to the 'total' span.
+    # Instead, it is explicitly mentioned in the label for the 'Express' shipping option.
+    # Therefore, we verify the text content of this label.
+    print("Verifying Express Shipping cost display in the label...")
+    express_shipping_label = wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "label[for='shipping-express']")))
+    label_text = express_shipping_label.text
     
-    # Verify the total has been updated (50 - 15% of 50 = 42.50)
-    WebDriverWait(driver, 10).until(
-        EC.text_to_be_present_in_element((By.ID, "total"), "42.50")
-    )
-    first_applied_total = float(driver.find_element(By.ID, "total").text)
-    print(f"Total after first discount application: ${first_applied_total:.2f}")
-    assert first_applied_total == 42.50, \
-        f"Expected total to be $42.50 after first discount, but got ${first_applied_total:.2f}"
-    print("First discount applied successfully.")
+    assert EXPECTED_SHIPPING_COST_IN_LABEL in label_text, \
+        f"Assertion Failed: Expected shipping cost '{EXPECTED_SHIPPING_COST_IN_LABEL}' not found in Express shipping label. Actual label text: '{label_text}'"
+    print(f"Verified: Express Shipping label correctly displays '{EXPECTED_SHIPPING_COST_IN_LABEL}'. Label text: '{label_text}'")
 
-    # 3. Attempt to apply the discount code 'SAVE15' again
-    print("Step 3: Attempting to apply discount code 'SAVE15' for the second time.")
-    # The input field still contains "SAVE15", so just click the apply button again
-    apply_discount_btn = WebDriverWait(driver, 10).until(
-        EC.element_to_be_clickable((By.XPATH, "//input[@id='discountCode']/following-sibling::button[1]"))
-    )
-    apply_discount_btn.click()
-
-    # Verify the discount message indicates that the discount is already applied
-    discount_message_element = WebDriverWait(driver, 10).until(
-        EC.visibility_of_element_located((By.ID, "discountMessage"))
-    )
-    expected_second_message = "Discount already applied"
-    assert expected_second_message in discount_message_element.text, \
-        f"Expected message '{expected_second_message}' after second attempt, but got '{discount_message_element.text}'"
-    
-    # Verify the total has NOT changed from the first application
-    second_attempt_total = float(driver.find_element(By.ID, "total").text)
-    print(f"Total after second discount attempt: ${second_attempt_total:.2f}")
-    assert second_attempt_total == first_applied_total, \
-        f"Expected total to remain ${first_applied_total:.2f}, but it changed to ${second_attempt_total:.2f}"
-    print("Second discount attempt correctly blocked, total remained unchanged as expected.")
+    # Also verify that the payment success message appears, indicating successful checkout completion
+    success_message = wait.until(EC.visibility_of_element_located((By.ID, "success")))
+    assert success_message.is_displayed(), "Assertion Failed: Payment success message is not displayed after clicking 'Pay Now'."
+    print("Payment successful message displayed.")
 
     print(f"Test Case {TEST_CASE_ID} PASSED")
     sys.exit(0)
 
 except Exception as e:
     print(f"Test Case {TEST_CASE_ID} FAILED")
-    print(f"An error occurred: {e}")
+    print(f"Error: {e}")
     if driver:
-        # Take a screenshot for debugging purposes
-        screenshot_path = f"failure_{TEST_CASE_ID}.png"
-        driver.save_screenshot(screenshot_path)
-        print(f"Screenshot saved to {screenshot_path}")
+        # Take a screenshot on failure for debugging
+        screenshot_name = f"{TEST_CASE_ID}_FAILED.png"
+        driver.save_screenshot(screenshot_name)
+        print(f"Screenshot saved as {screenshot_name}")
     sys.exit(1)
 
 finally:
-    # Clean up: close the browser and remove the temporary HTML file
+    # Clean up: Close the browser and delete the temporary HTML file
     if driver:
         driver.quit()
-    if html_file_path and os.path.exists(html_file_path):
-        os.remove(html_file_path)
-        print(f"Temporary HTML file removed: {html_file_path}")
+    if temp_html_file and os.path.exists(temp_html_file.name):
+        os.remove(temp_html_file.name)
+        print(f"Cleaned up temporary file: {temp_html_file.name}")

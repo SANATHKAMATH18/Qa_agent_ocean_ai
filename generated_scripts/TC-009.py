@@ -1,5 +1,6 @@
 import sys
 import os
+import tempfile
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -7,14 +8,11 @@ from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service as ChromeService
 
-# Test Case Details
+# Test Case ID
 TEST_CASE_ID = "TC-009"
-TEST_CASE_TITLE = "Select Standard Shipping Method"
-TEST_CASE_DESCRIPTION = "As a user, I select 'Standard shipping' as my preferred shipping method during checkout."
-EXPECTED_RESULT = "No additional cost is added to the total cart value for standard shipping (shipping cost remains $0)."
 
 # Target HTML content
-TARGET_HTML_CONTENT = """
+HTML_CONTENT = r'''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -198,139 +196,69 @@ TARGET_HTML_CONTENT = """
     </script>
 </body>
 </html>
-"""
+'''
 
-# File path for the temporary HTML file
-HTML_FILE_NAME = "checkout_page.html"
-SCREENSHOT_DIR = "screenshots"
+# Setup WebDriver
+driver = None
+temp_html_file = None
 
-def setup_driver():
-    """Initializes and returns a Chrome WebDriver."""
-    # Ensure the screenshot directory exists
-    if not os.path.exists(SCREENSHOT_DIR):
-        os.makedirs(SCREENSHOT_DIR)
+try:
+    # Create a temporary HTML file
+    fd, path = tempfile.mkstemp(suffix=".html")
+    with os.fdopen(fd, 'w', encoding='utf-8') as f:
+        f.write(HTML_CONTENT)
+    temp_html_file = path
 
-    # Setup Chrome options (optional, but good practice)
-    chrome_options = webdriver.ChromeOptions()
-    # Uncomment the line below to run in headless mode (without opening a browser UI)
-    # chrome_options.add_argument("--headless")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--window-size=1920,1080") # Set a default window size
-
-    # Initialize Chrome driver using ChromeDriverManager
+    # Initialize Chrome WebDriver
+    # Using ChromeDriverManager to automatically handle driver executable
     service = ChromeService(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-    return driver
+    driver = webdriver.Chrome(service=service)
+    driver.maximize_window() # Maximize window for better visibility
 
-def create_html_file(content, filename):
-    """Creates a temporary HTML file."""
-    with open(filename, "w") as f:
-        f.write(content)
-    return os.path.abspath(filename)
+    # Navigate to the local HTML file
+    driver.get(f"file:///{temp_html_file}")
 
-def cleanup_html_file(filename):
-    """Deletes the temporary HTML file."""
-    if os.path.exists(filename):
-        os.remove(filename)
+    print(f"Executing Test Case: {TEST_CASE_ID} - 'Pay Now' Button Color Verification")
 
-def take_screenshot(driver, test_id):
-    """Takes a screenshot and saves it to the screenshots directory."""
-    screenshot_path = os.path.join(SCREENSHOT_DIR, f"{test_id}_failure.png")
-    try:
-        driver.save_screenshot(screenshot_path)
-        print(f"Screenshot saved to: {screenshot_path}")
-    except Exception as e:
-        print(f"Failed to take screenshot: {e}")
+    # 1. Locate the 'Pay Now' button using its ID
+    # Use WebDriverWait to ensure the element is present and visible
+    pay_button = WebDriverWait(driver, 10).until(
+        EC.visibility_of_element_located((By.ID, "payBtn"))
+    )
+    print("Successfully located 'Pay Now' button.")
 
-def run_test():
-    driver = None
-    html_file_path = None
-    try:
-        # 1. Create the HTML file
-        html_file_path = create_html_file(TARGET_HTML_CONTENT, HTML_FILE_NAME)
-        
-        # 2. Setup WebDriver
-        driver = setup_driver()
-        # Explicit wait with a 10-second timeout
-        wait = WebDriverWait(driver, 10) 
+    # 2. Get the computed background color of the button
+    # The CSS property 'background-color: green;' typically resolves to rgb(0, 128, 0)
+    actual_background_color = pay_button.value_of_css_property("background-color")
+    print(f"Actual background color of 'Pay Now' button: {actual_background_color}")
 
-        # 3. Navigate to the local HTML file
-        driver.get(f"file:///{html_file_path}")
-        print(f"Navigated to: {driver.current_url}")
+    # 3. Define the expected background color (green in RGB format)
+    # Standard 'green' in CSS is rgb(0, 128, 0)
+    expected_background_color_rgb = "rgb(0, 128, 0)"
 
-        # 4. Add a product to the cart to establish a base total
-        print("Adding 'Product A' to cart...")
-        add_to_cart_button = wait.until(
-            EC.element_to_be_clickable((By.XPATH, "//div[@class='item']/span[contains(text(), 'Product A')]/following-sibling::button"))
-        )
-        add_to_cart_button.click()
-
-        # 5. Get the initial total value after adding products
-        total_element = wait.until(EC.visibility_of_element_located((By.ID, "total")))
-        initial_total_str = total_element.text
-        initial_total = float(initial_total_str)
-        print(f"Initial cart total after adding Product A: ${initial_total:.2f}")
-
-        # 6. Verify 'Standard shipping' radio button is selected by default
-        standard_shipping_radio = wait.until(
-            EC.presence_of_element_located((By.ID, "shipping-standard"))
-        )
-        
-        if not standard_shipping_radio.is_selected():
-            # If for some reason it's not selected, click it.
-            # Based on HTML, it should be selected by default.
-            print("Standard shipping not selected by default, clicking it now.")
-            standard_shipping_radio.click()
-            # Re-check if it's selected after clicking
-            if not standard_shipping_radio.is_selected():
-                raise AssertionError("Failed to select Standard shipping method after clicking.")
-        else:
-            print("Standard shipping method is selected by default.")
-
-        # 7. Get the total value again after confirming shipping method
-        # The JavaScript doesn't dynamically update the total based on shipping selection
-        # unless express is chosen. For standard (free) shipping, the total should remain unchanged.
-        final_total_str = total_element.text
-        final_total = float(final_total_str)
-        print(f"Final cart total after confirming standard shipping: ${final_total:.2f}")
-
-        # 8. Assert that no additional cost is added for standard shipping
-        assert final_total == initial_total, \
-            f"Expected total to remain ${initial_total:.2f} for standard shipping, but got ${final_total:.2f}"
-        print(f"Assertion Passed: Total remained ${final_total:.2f}, confirming standard shipping is free.")
-
-        # Optional: Fill user details and attempt to pay to ensure full checkout flow
-        # This is not strictly required by TC-009's assertion but validates page functionality.
-        print("Filling user details for checkout completion...")
-        wait.until(EC.presence_of_element_located((By.ID, "name"))).send_keys("John Doe")
-        wait.until(EC.presence_of_element_located((By.ID, "email"))).send_keys("john.doe@example.com")
-        wait.until(EC.presence_of_element_located((By.ID, "address"))).send_keys("123 Test St, Test City")
-
-        pay_button = wait.until(EC.element_to_be_clickable((By.ID, "payBtn")))
-        pay_button.click()
-
-        # Verify payment success message appears
-        success_message = wait.until(EC.visibility_of_element_located((By.ID, "success")))
-        assert success_message.is_displayed(), "Payment success message did not appear."
-        print("Payment successful message displayed.")
-
-        print(f"Test Case {TEST_CASE_ID} PASSED")
+    # 4. Assert that the actual background color matches the expected green
+    if actual_background_color == expected_background_color_rgb:
+        print(f"Test Case {TEST_CASE_ID} PASSED: 'Pay Now' button has the expected green background color ({actual_background_color}).")
         sys.exit(0)
-
-    except Exception as e:
-        print(f"Test Case {TEST_CASE_ID} FAILED")
-        print(f"Error: {e}")
-        if driver:
-            take_screenshot(driver, TEST_CASE_ID)
+    else:
+        print(f"Test Case {TEST_CASE_ID} FAILED: 'Pay Now' button background color mismatch.")
+        print(f"Expected: {expected_background_color_rgb}, Actual: {actual_background_color}")
+        driver.save_screenshot(f"{TEST_CASE_ID}_FAILED_color_mismatch.png")
         sys.exit(1)
 
-    finally:
-        # 9. Cleanup: Close the browser and delete the temporary HTML file
-        if driver:
-            driver.quit()
-        if html_file_path:
-            cleanup_html_file(HTML_FILE_NAME)
+except Exception as e:
+    print(f"An error occurred during Test Case {TEST_CASE_ID}: {e}")
+    if driver:
+        # Take a screenshot on failure
+        screenshot_name = f"{TEST_CASE_ID}_FAILED_error.png"
+        driver.save_screenshot(screenshot_name)
+        print(f"Screenshot saved as {screenshot_name}")
+    sys.exit(1)
 
-if __name__ == "__main__":
-    run_test()
+finally:
+    # Clean up: Close the browser
+    if driver:
+        driver.quit()
+    # Clean up: Delete the temporary HTML file
+    if temp_html_file and os.path.exists(temp_html_file):
+        os.remove(temp_html_file)

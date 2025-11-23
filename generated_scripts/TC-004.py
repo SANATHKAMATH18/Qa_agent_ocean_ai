@@ -1,21 +1,18 @@
 import sys
 import os
+import tempfile
 from selenium import webdriver
+from selenium.webdriver.chrome.service import Service as ChromeService
+from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from webdriver_manager.chrome import ChromeDriverManager
-from selenium.webdriver.chrome.service import Service as ChromeService
 
-# --- Test Case Details ---
+# Test Case ID
 TEST_CASE_ID = "TC-004"
-# The expected RGBA value for 'green' as rendered by browsers.
-# This is derived from the CSS 'background-color: green;' in the target HTML.
-EXPECTED_BUTTON_COLOR_RGBA = "rgba(0, 128, 0, 1)"
 
-# --- Create a temporary HTML file for the test ---
-HTML_FILE_NAME = "checkout_page_tc004.html"
-HTML_CONTENT = """
+# HTML content provided as a raw string
+HTML_CONTENT = r'''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -199,82 +196,99 @@ HTML_CONTENT = """
     </script>
 </body>
 </html>
-"""
+'''
 
-def create_html_file(filename, content):
-    """Creates a temporary HTML file with the given content."""
-    with open(filename, "w") as f:
-        f.write(content)
-    # Return the absolute path to the file
-    return os.path.abspath(filename)
-
-def cleanup_html_file(filename):
-    """Removes the temporary HTML file."""
-    if os.path.exists(filename):
-        os.remove(filename)
-
-# Initialize driver and html_file_path to None for finally block
 driver = None
-html_file_path = None
+temp_file_path = None
 
 try:
-    # Create the temporary HTML file for the test
-    html_file_path = create_html_file(HTML_FILE_NAME, HTML_CONTENT)
+    # 1. Setup Chrome WebDriver using ChromeDriverManager
+    print(f"[{TEST_CASE_ID}] Setting up Chrome WebDriver...")
+    driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()))
+    # Initialize WebDriverWait for explicit waits
+    wait = WebDriverWait(driver, 10) 
+
+    # 2. Create a temporary HTML file to host the content
+    print(f"[{TEST_CASE_ID}] Creating temporary HTML file...")
+    with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.html', encoding='utf-8') as temp_file:
+        temp_file.write(HTML_CONTENT)
+        temp_file_path = temp_file.name
     
-    # Initialize Chrome WebDriver using ChromeDriverManager for automatic driver management
-    service = ChromeService(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service)
+    # Construct the file URL for the browser to open
+    file_url = 'file:///' + os.path.abspath(temp_file_path).replace('\\', '/')
     
-    # Set up WebDriverWait for explicit waits with a timeout of 10 seconds
-    wait = WebDriverWait(driver, 10)
+    # 3. Navigate to the local HTML file
+    print(f"[{TEST_CASE_ID}] Navigating to {file_url}...")
+    driver.get(file_url)
 
-    # Navigate to the local HTML file
-    # Using 'file:///' prefix to open a local file
-    driver.get(f"file:///{html_file_path}")
-    print(f"Navigated to local file: {html_file_path}")
+    # 4. Add items to the cart to establish a base total
+    print(f"[{TEST_CASE_ID}] Adding Product A ($50) to cart...")
+    add_product_a_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[span[contains(text(), 'Product A')]]/button[text()='Add to Cart']")))
+    add_product_a_button.click()
 
-    # --- Test Case TC-004: Verify 'Pay Now' Button Color ---
-    print(f"\n--- Executing Test Case {TEST_CASE_ID}: Verify 'Pay Now' Button Color ---")
+    print(f"[{TEST_CASE_ID}] Adding Product B ($30) to cart...")
+    add_product_b_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//div[span[contains(text(), 'Product B')]]/button[text()='Add to Cart']")))
+    add_product_b_button.click()
 
-    # 1. Locate the 'Pay Now' button using its ID
-    # Use an explicit wait to ensure the button is visible before interacting
-    pay_now_button = wait.until(
-        EC.visibility_of_element_located((By.ID, "payBtn")),
-        message="Timed out waiting for 'Pay Now' button to be visible."
-    )
-    print("Successfully located the 'Pay Now' button.")
+    # Get initial total before applying discount
+    total_element = wait.until(EC.visibility_of_element_located((By.ID, "total")))
+    initial_total_str = total_element.text
+    initial_total = float(initial_total_str)
+    print(f"[{TEST_CASE_ID}] Initial cart total: ${initial_total:.2f}")
+    assert initial_total == 80.00, f"Assertion Failed: Expected initial total $80.00, but got ${initial_total:.2f}"
 
-    # 2. Get the computed 'background-color' CSS property of the button
-    actual_color = pay_now_button.value_of_css_property("background-color")
-    print(f"Actual 'Pay Now' button background color: {actual_color}")
+    # 5. Locate the discount code input field and enter the valid code
+    print(f"[{TEST_CASE_ID}] Entering discount code 'SAVE15' into the input field...")
+    discount_code_input = wait.until(EC.visibility_of_element_located((By.ID, "discountCode")))
+    discount_code_input.send_keys("SAVE15")
 
-    # 3. Assert that the actual color matches the expected green RGBA value
-    if actual_color == EXPECTED_BUTTON_COLOR_RGBA:
-        print(f"Test Case {TEST_CASE_ID} PASSED: The 'Pay Now' button has the expected green color ({actual_color}).")
-        sys.exit(0) # Exit with success code
-    else:
-        # If the color does not match, raise an AssertionError
-        raise AssertionError(
-            f"Test Case {TEST_CASE_ID} FAILED: 'Pay Now' button color is '{actual_color}', "
-            f"but expected '{EXPECTED_BUTTON_COLOR_RGBA}' (green)."
-        )
+    # 6. Click the "Apply" button to apply the discount
+    print(f"[{TEST_CASE_ID}] Clicking 'Apply' button...")
+    apply_button = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[text()='Apply']")))
+    apply_button.click()
+
+    # 7. Verify the discount message indicates successful application
+    print(f"[{TEST_CASE_ID}] Verifying discount message...")
+    discount_message_element = wait.until(EC.visibility_of_element_located((By.ID, "discountMessage")))
+    discount_message_text = discount_message_element.text
+    assert discount_message_text == "Discount applied!", \
+        f"Assertion Failed: Expected discount message 'Discount applied!', but got '{discount_message_text}'"
+    
+    # 8. Verify the updated total cart value reflects the 15% discount
+    print(f"[{TEST_CASE_ID}] Verifying updated cart total after discount...")
+    updated_total_element = wait.until(EC.visibility_of_element_located((By.ID, "total")))
+    updated_total_str = updated_total_element.text
+    updated_total = float(updated_total_str)
+    
+    expected_discount_amount = initial_total * 0.15
+    expected_total_after_discount = initial_total - expected_discount_amount
+    
+    # Using a small delta for float comparison due to potential precision issues
+    assert abs(updated_total - expected_total_after_discount) < 0.01, \
+        f"Assertion Failed: Expected updated total ${expected_total_after_discount:.2f}, but got ${updated_total:.2f}"
+    
+    print(f"[{TEST_CASE_ID}] Discount successfully applied. New total: ${updated_total:.2f}")
+
+    # If all assertions pass, the test case is successful
+    print(f"Test Case {TEST_CASE_ID} PASSED")
+    sys.exit(0)
 
 except Exception as e:
-    # Catch any exceptions that occur during the test execution
-    print(f"Test Case {TEST_CASE_ID} FAILED due to an error: {e}")
+    # Handle any exceptions that occur during the test
+    print(f"Test Case {TEST_CASE_ID} FAILED")
+    print(f"Error: {e}")
     if driver:
-        # If the driver was initialized, take a screenshot for debugging
-        screenshot_name = f"{TEST_CASE_ID}_FAILED_screenshot.png"
+        # Take a screenshot on failure for debugging
+        screenshot_name = f"{TEST_CASE_ID}_FAILED.png"
         driver.save_screenshot(screenshot_name)
         print(f"Screenshot saved as {screenshot_name}")
-    sys.exit(1) # Exit with failure code
+    sys.exit(1)
 
 finally:
-    # Ensure the browser is closed and the temporary HTML file is cleaned up
+    # 9. Clean up: Close the browser and delete the temporary HTML file
     if driver:
+        print(f"[{TEST_CASE_ID}] Quitting WebDriver...")
         driver.quit()
-        print("Browser closed.")
-    if html_file_path:
-        cleanup_html_file(HTML_FILE_NAME)
-        print(f"Temporary HTML file '{HTML_FILE_NAME}' cleaned up.")
-
+    if temp_file_path and os.path.exists(temp_file_path):
+        print(f"[{TEST_CASE_ID}] Deleting temporary HTML file: {temp_file_path}")
+        os.remove(temp_file_path)
