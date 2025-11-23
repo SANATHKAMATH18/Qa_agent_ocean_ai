@@ -137,9 +137,19 @@ GOOGLE_API_KEY=your_google_api_key_here
 
 The Streamlit UI provides a complete graphical interface for all operations.
 
+**From project root:**
 ```bash
+# Method 1: Using the launcher script
+python main.py
+
+# Method 2: Direct streamlit command (from project root)
 streamlit run app/ui.py
+
+# Method 3: Using Python module syntax
+python -m streamlit run app/ui.py
 ```
+
+**Important:** Make sure you're in the project root directory when running these commands.
 
 The UI will open in your browser at `http://localhost:8501`
 

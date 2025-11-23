@@ -43,6 +43,7 @@ def clean_python_code(response_text: str):
 def save_generated_script(filename: str, code: str):
     """
     Saves the Python code to the generated_scripts folder.
+    Returns the absolute path to the saved file.
     """
     # Ensure directory exists
     output_dir = "generated_scripts"
@@ -53,4 +54,5 @@ def save_generated_script(filename: str, code: str):
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(code)
     
-    return filepath
+    # Return absolute path to avoid path resolution issues
+    return os.path.abspath(filepath)
