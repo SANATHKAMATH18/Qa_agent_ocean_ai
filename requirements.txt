@@ -1,0 +1,26 @@
+# --- Core Web Frameworks ---
+fastapi
+uvicorn
+streamlit
+
+# --- AI & Orchestration ---
+langchain
+langchain-community
+langchain-openai
+langgraph
+
+# --- Vector Database ---
+chromadb
+
+# --- Data Ingestion & Parsing ---
+beautifulsoup4
+unstructured
+markdown
+
+# --- Automation & Testing ---
+selenium
+webdriver-manager
+
+# --- Utilities ---
+python-dotenv
+requests

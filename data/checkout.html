@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<h3>Products</h3>
+<div class="item">
+<span>Product A - $50</span>
+<button onclick="addToCart('Product A', 50)">Add to Cart</button>
+</div>
+<div class="item">
+<span>Product B - $30</span>
+<button onclick="addToCart('Product B', 30)">Add to Cart</button>
+</div>
+<div class="item">
+<span>Product C - $20</span>
+<button onclick="addToCart('Product C', 20)">Add to Cart</button>
+</div>
+
+
+<h3>Cart Summary</h3>
+<div id="cart"></div>
+<p>Total: $<span id="total">0</span></p>
+
+
+<h3>Discount Code</h3>
+<input type="text" id="discountCode">
+<button onclick="applyDiscount()">Apply</button>
+
+
+<h3>User Details</h3>
+<input type="text" id="name" placeholder="Full Name"><br><br>
+<input type="email" id="email" placeholder="Email"><br>
+<span id="emailError" class="error"></span><br>
+<textarea id="address" placeholder="Address"></textarea><br>
+
+
+<h3>Shipping Method</h3>
+<input type="radio" name="shipping" value="standard" checked> Standard (Free)
+<input type="radio" name="shipping" value="express"> Express ($10)
+
+
+<h3>Payment Method</h3>
+<input type="radio" name="payment" value="card" checked> Credit Card
+<input type="radio" name="payment" value="paypal"> PayPal
+
+
+<br><br>
+<button id="payBtn" onclick="processPayment()">Pay Now</button>
+<p id="success">Payment Successful!</p>
+</div>
+
+
+<script>
+let total = 0;
+
+
+function addToCart(name, price) {
+const cart = document.getElementById('cart');
+cart.innerHTML += `<p>${name} - $${price}</p>`;
+total += price;
+document.getElementById('total').innerText = total;
+}
+
+
+function applyDiscount() {
+const code = document.getElementById('discountCode').value;
+if (code === 'SAVE15') {
+total = total - (total * 0.15);
+document.getElementById('total').innerText = total.toFixed(2);
+}
+}
+
+
+function validateEmail(email) {
+return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+
+function processPayment() {
+const email = document.getElementById('email').value;
+if (!validateEmail(email)) {
+document.getElementById('emailError').innerText = 'Invalid email format';
+return;
+}
+document.getElementById('emailError').innerText = '';
+document.getElementById('success').style.display = 'block';
+}
+</script>
+</body>
+</html>
